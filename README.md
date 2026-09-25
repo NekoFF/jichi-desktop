@@ -20,7 +20,7 @@ src/core/              Protokoll, Zustand, Einstellungen — ohne DOM, ohne Fram
   agent.ts               der Agent als ein Objekt
   settings.ts            was gespeichert wird — und was nicht
   labels.ts              deutsche Wörter und Töne
-  selftest.ts            31 Prüfungen gegen einen erfundenen Agenten
+  selftest.ts            42 Prüfungen gegen einen erfundenen Agenten
 index.html, src/main.ts   Referenzansicht (wird durch das JLU Design System ersetzt)
 docs/CONTRACT.md          die Naht zwischen Kern und Oberfläche
 ```
@@ -59,8 +59,8 @@ Dieser Pfad wird beim ersten Start automatisch vorgeschlagen, wenn es ihn gibt.
 ## Prüfen
 
 ```sh
-npm run check        # Typen + 31 Prüfungen des Kerns
-npm run check:rust   # 8 Prüfungen der Rust-Seite
+npm run check        # Typen + 42 Prüfungen des Kerns
+npm run check:rust   # 11 Prüfungen der Rust-Seite
 ```
 
 Beides läuft ohne Fenster, ohne Modell und ohne installiertes jichi. Geprüft

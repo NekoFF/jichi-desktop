@@ -30,7 +30,12 @@ import {
 } from "./protocol.ts";
 import { resolveConfig, store, type LaunchConfig } from "./settings.ts";
 import * as S from "./state.ts";
-import { tauriTransport, type Transport } from "./transport.ts";
+import {
+  tauriTransport,
+  type DoctorReport,
+  type EnvSpec,
+  type Transport,
+} from "./transport.ts";
 
 /** Meldungen des Agenten auf stderr, die in den Verlauf gehören und nicht nur
  *  in die Diagnose: sie erklären, warum ein Zug später scheitert. */
@@ -97,6 +102,110 @@ export class Agent {
     }
     void this.refreshSessions();
     void this.#probeVersion();
+    await this.refreshReadiness();
+  }
+
+  // ── Erster Start ───────────────────────────────────────────────────────────
+
+  /** Fragt den Rechner ab: Agent da? Konfiguration da? Schlüssel hinterlegt? */
+  async refreshReadiness(): Promise<void> {
+    try {
+      const readiness = await this.#transport.readiness();
+      this.#set({ readiness, agentVersion: readiness.version ?? this.#snapshot.agentVersion });
+      // Liegt der Schlüssel im Schlüsselbund, wird er auch von dort genommen.
+      if (readiness.keyStored && this.#config) {
+        const env = keychainEnv(this.#config.env, readiness.keyEnv);
+        if (env) {
+          this.#config = { ...this.#config, env };
+          store(this.#config);
+        }
+      }
+    } catch (cause) {
+      this.#diagnose(`Bereitschaft nicht feststellbar: ${describe(cause)}`);
+    }
+  }
+
+  /**
+   * Den ersten Start abschließen: Schlüssel hinterlegen, bei Bedarf die
+   * Konfiguration des Agenten anlegen, und ihn sich selbst prüfen lassen.
+   *
+   * Der Schlüssel geht in den Schlüsselbund des Betriebssystems und wird von
+   * dort **nie wieder ausgelesen** — außer von der Rust-Seite im Moment des
+   * Starts. Er steht in keiner Einstellung, in keinem Protokoll und in keinem
+   * Zustand dieser Anwendung.
+   *
+   * Geprüft wird nicht von uns, sondern von `jichi doctor`: derselbe Weg, den
+   * auch ein echter Zug nimmt. Eine zweite, hier nachgebaute Prüfung könnte
+   * grün melden, wo der echte Weg rot ist.
+   */
+  async setup(apiKey: string): Promise<DoctorReport> {
+    const key = apiKey.trim();
+    if (!key) throw new Error("Bitte den API-Schlüssel eintragen.");
+
+    const readiness = this.#snapshot.readiness ?? (await this.#transport.readiness());
+    if (!readiness.agent) {
+      throw new Error(
+        "jichi wurde auf diesem Rechner nicht gefunden. Der Pfad lässt sich in den erweiterten Einstellungen eintragen.",
+      );
+    }
+
+    await this.#transport.secretStore(readiness.keyEnv, key);
+
+    if (!readiness.config.exists) {
+      await this.#transport.writeConfig("jlu");
+    } else if (readiness.config.problem) {
+      throw new Error(`${readiness.config.path}: ${readiness.config.problem}`);
+    }
+
+    // Ab jetzt kommt der Schlüssel aus dem Schlüsselbund.
+    this.#config ??= await resolveConfig(this.#transport);
+    const env = keychainEnv(this.#config.env, readiness.keyEnv) ?? this.#config.env;
+    this.#config = { ...this.#config, program: readiness.agent, env };
+    store(this.#config);
+
+    const health = await this.#transport.doctor(this.#config.program, env);
+    this.#set({ health });
+    await this.refreshReadiness();
+    return health;
+  }
+
+  /** Nur prüfen, nichts ändern — für die Diagnose in den Einstellungen. */
+  async checkHealth(): Promise<DoctorReport> {
+    const config = this.#config ?? (await resolveConfig(this.#transport));
+    const health = await this.#transport.doctor(config.program, config.env);
+    this.#set({ health });
+    return health;
+  }
+
+  /** Den Schlüssel aus dem Schlüsselbund entfernen. */
+  async forgetKey(): Promise<void> {
+    const account = this.#snapshot.readiness?.keyEnv ?? "JICHI_API_KEY";
+    await this.#transport.secretForget(account);
+    await this.disconnect();
+    await this.refreshReadiness();
+  }
+
+  // ── Arbeitsverzeichnis ─────────────────────────────────────────────────────
+
+  /**
+   * Ein Projekt öffnen. Das Arbeitsverzeichnis ist keine Einstellung, sondern
+   * das, was gerade offen ist — der Agent sieht genau diesen Ordner.
+   */
+  async openWorkspace(path: string): Promise<void> {
+    const cwd = path.trim();
+    if (!cwd) return;
+    this.#config ??= await resolveConfig(this.#transport);
+    this.#config = { ...this.#config, cwd };
+    store(this.#config);
+    this.#set({ cwd });
+    await this.newSession();
+  }
+
+  /** Ordnerauswahl des Betriebssystems. Liefert den gewählten Pfad, oder `null`. */
+  async pickWorkspace(): Promise<string | null> {
+    const picked = await this.#transport.pickDirectory("Projektordner wählen");
+    if (picked) await this.openWorkspace(picked);
+    return picked;
   }
 
   /** Einstellungen ändern, speichern und — falls verbunden — neu verbinden. */
@@ -488,6 +597,18 @@ export class Agent {
       this.#permission = resolve;
     });
   }
+}
+
+/**
+ * Die Schlüsselvariable auf den Schlüsselbund umstellen.
+ *
+ * Liefert `null`, wenn schon alles stimmt — dann wird nichts gespeichert und
+ * niemand benachrichtigt.
+ */
+function keychainEnv(env: EnvSpec[], keyEnv: string): EnvSpec[] | null {
+  const current = env.find((e) => e.name === keyEnv);
+  if (current?.secret === keyEnv && !current.file && !current.value) return null;
+  return [...env.filter((e) => e.name !== keyEnv), { name: keyEnv, secret: keyEnv }];
 }
 
 function describe(cause: unknown): string {

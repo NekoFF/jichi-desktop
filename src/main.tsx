@@ -1,21 +1,22 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  AppShellLayout, Badge, Button, Dialog, DialogContent, DialogDescription,
-  DialogFooter, DialogHeader, DialogTitle, Input, Label, NavItem,
-  Textarea, ThemeProvider, ThemeToggle,
+  AppShell, Badge, Button, Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, Input, InputGroupAddon, Label, NavItem,
+  PromptInput, PromptInputAdaptiveTextarea, PromptInputSubmit,
+  ThemeProvider, ThemeToggle,
 } from "@ki4jlu/design-system";
-import { ArrowRight, ChevronRight, FileCode2, FolderOpen, PanelRightClose,
-  Plus, Send, Settings2, Square, Terminal, X } from "lucide-react";
+import { ArrowUp, ChevronRight, FileCode2, FolderOpen, PanelRightClose,
+  Plus, Settings2, Square, Terminal, X } from "lucide-react";
 import {
-  agent, formatArgs, parseArgs, permissionTone, relativeTime, roleLabel,
-  shortPath, statusLabel, statusTone, toolKindLabel, toolStatusLabel,
-  toolStatusTone, type LaunchConfig, type Snapshot, type ToolItem,
-  type TranscriptItem, type Tone,
+  agent, formatArgs, parseArgs, permissionTone, readPreferences,
+  relativeTime, roleLabel, shortPath, statusLabel,
+  toolKindLabel, toolStatusLabel, toolStatusTone, writePreferences,
+  type Appearance, type DoctorReport, type LaunchConfig, type Preferences,
+  type Snapshot, type ToolItem, type TranscriptItem, type Tone,
 } from "./core/index.ts";
 import "./styles.css";
 
-const KEY_VAR = "JICHI_API_KEY";
 const startup = agent.init();
 
 function useAgent(): Snapshot {
@@ -32,71 +33,145 @@ function badgeTone(tone: Tone): "neutral" | "primary" | "success" | "warning" | 
 
 type Panel = "changes" | "files" | "terminal";
 
-function SettingsForm({ snapshot, onSaved, onClose, firstRun = false }: {
-  snapshot: Snapshot;
-  onSaved: () => void;
-  onClose: () => void;
-  firstRun?: boolean;
-}) {
-  const config = agent.config;
-  const [program, setProgram] = useState(config?.program ?? "");
-  const [args, setArgs] = useState(formatArgs(config?.args ?? []));
-  const [cwd, setCwd] = useState(config?.cwd ?? "");
-  const [keyFile, setKeyFile] = useState(config?.env.find(e => e.name === KEY_VAR)?.file ?? "");
-  const [saving, setSaving] = useState(false);
+function Brand({ compact = false }: { compact?: boolean }) {
+  return <span className={`brand ${compact ? "brand-compact" : ""}`}>
+    <span className="brand-mark" aria-hidden="true"><span /></span>
+    {!compact && <span className="brand-text"><strong>JICHI</strong><small>AI Coding Assistant</small></span>}
+  </span>;
+}
+
+function HealthSummary({ report }: { report: DoctorReport | null }) {
+  if (!report) return null;
+  return <div className="health-summary" role="status">
+    <strong>{report.fail ? "Verbindung braucht Aufmerksamkeit" : "Verbindung geprüft"}</strong>
+    <span>{report.ok} erfolgreich{report.warn ? ` · ${report.warn} Hinweise` : ""}{report.fail ? ` · ${report.fail} Fehler` : ""}</span>
+    {(report.fail > 0 || report.warn > 0) && <details><summary>Prüfungen anzeigen</summary><ul>{report.checks.map((check, index) =>
+      <li key={index}><strong>{check.label}</strong> — {check.detail}</li>)}</ul></details>}
+  </div>;
+}
+
+function Onboarding() {
+  const [name, setName] = useState(() => readPreferences().name);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [health, setHealth] = useState<DoctorReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function save(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
+    if (!name.trim() || !key.trim()) return;
+    setBusy(true);
     setError(null);
-    const previous = agent.config;
-    const next: LaunchConfig = {
-      program: program.trim(), args: parseArgs(args), cwd: cwd.trim(),
-      env: [
-        ...(previous?.env.filter(e => e.name !== KEY_VAR) ?? []),
-        ...(keyFile.trim() ? [{ name: KEY_VAR, file: keyFile.trim() }] : []),
-      ],
-    };
+    writePreferences({ ...readPreferences(), name: name.trim() });
+    const secret = key;
+    setKey("");
     try {
-      await agent.setConfig(next);
-      onSaved();
+      const result = await agent.setup(secret);
+      setHealth(result);
+      if (result.fail) setError("Die Verbindung konnte noch nicht vollständig eingerichtet werden. Sieh dir die Prüfungen unten an.");
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   }
 
-  return <form className="settings-form" onSubmit={save}>
-    <div className="field">
-      <Label htmlFor="cfg-program">Programm</Label>
-      <Input id="cfg-program" value={program} onChange={e => setProgram(e.target.value)} spellCheck={false} placeholder="jichi" />
+  return <main className="onboarding-screen">
+    <div className="onboarding-card">
+      <Brand />
+      <h1>Willkommen bei jichi</h1>
+      <p>Richte deine Verbindung ein. Danach kannst du direkt loslegen.</p>
+      <form onSubmit={submit} className="setup-form">
+        <div className="field"><Label htmlFor="setup-name">Wie soll jichi dich nennen?</Label>
+          <Input id="setup-name" value={name} onChange={event => setName(event.target.value)} autoComplete="given-name" autoFocus required /></div>
+        <div className="field"><Label htmlFor="setup-key">API-Schlüssel</Label>
+          <Input id="setup-key" type="password" value={key} onChange={event => setKey(event.target.value)} autoComplete="off" required />
+          <small>Der Schlüssel wird im Schlüsselbund dieses Geräts gespeichert.</small></div>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <Button type="submit" disabled={busy || !name.trim() || !key.trim()}>{busy ? "Verbindung wird geprüft …" : "Verbinden"}</Button>
+      </form>
+      <HealthSummary report={health} />
     </div>
-    <div className="field">
-      <Label htmlFor="cfg-args">Argumente</Label>
-      <Input id="cfg-args" value={args} onChange={e => setArgs(e.target.value)} spellCheck={false} placeholder="--acp" />
-    </div>
-    <div className="field">
-      <Label htmlFor="cfg-cwd">Arbeitsverzeichnis</Label>
-      <Input id="cfg-cwd" value={cwd} onChange={e => setCwd(e.target.value)} spellCheck={false} placeholder="/Pfad/zum/Projekt" />
-    </div>
-    <div className="field">
-      <Label htmlFor="cfg-key">Pfad zur API-Schlüsseldatei</Label>
-      <Input id="cfg-key" value={keyFile} onChange={e => setKeyFile(e.target.value)} spellCheck={false} placeholder="/Pfad/zur/Schlüsseldatei" />
-      <p className="field-help">Der Dateiinhalt wird erst beim Start des Agenten gelesen.</p>
-    </div>
-    {snapshot.agentVersion && <p className="field-help">Gefunden: {snapshot.agentVersion}</p>}
+  </main>;
+}
+
+function Settings({ snapshot, preferences, setPreferences, close }: {
+  snapshot: Snapshot;
+  preferences: Preferences;
+  setPreferences: (next: Preferences) => void;
+  close: () => void;
+}) {
+  const config = agent.config;
+  const [name, setName] = useState(preferences.name);
+  const [program, setProgram] = useState(config?.program ?? "");
+  const [args, setArgs] = useState(formatArgs(config?.args ?? []));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function saveName(value: string) {
+    const next = { ...preferences, name: value.trim() };
+    setPreferences(next);
+    writePreferences(next);
+  }
+
+  function saveAppearance(appearance: Appearance) {
+    const next = { ...preferences, appearance };
+    setPreferences(next);
+    writePreferences(next);
+  }
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try { await action(); }
+    catch (cause) { setError(messageOf(cause)); }
+    finally { setBusy(false); }
+  }
+
+  async function saveAdvanced(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const previous = agent.config;
+    const next: LaunchConfig = {
+      program: program.trim(), args: parseArgs(args),
+      cwd: previous?.cwd ?? snapshot.cwd ?? "",
+      env: previous?.env ?? [],
+    };
+    await run(() => agent.setConfig(next));
+  }
+
+  const readiness = snapshot.readiness;
+  const status = readiness?.keyStored
+    ? `${readiness.config.models.length} Modell${readiness.config.models.length === 1 ? "" : "e"} · ${readiness.version ?? "jichi"}`
+    : "Einrichtung erforderlich";
+
+  return <div className="settings-sections">
+    <section><h3>Allgemein</h3>
+      <div className="field"><Label htmlFor="settings-name">Name</Label><Input id="settings-name" value={name} onChange={event => setName(event.target.value)} onBlur={() => saveName(name)} /></div>
+      <div className="field"><Label htmlFor="settings-appearance">Erscheinungsbild</Label>
+        <select id="settings-appearance" value={preferences.appearance} onChange={event => saveAppearance(event.target.value as Appearance)}>
+          <option value="system">System</option><option value="light">Hell</option><option value="dark">Dunkel</option>
+        </select></div>
+    </section>
+    <section><h3>KI-Verbindung</h3>
+      <div className="connection-status"><Badge appearance="text" dot tone={readiness?.keyStored ? "success" : "warning"}>{status}</Badge></div>
+      <div className="settings-buttons">
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run(() => agent.checkHealth())}>Verbindung prüfen</Button>
+        <Button type="button" variant="ghost-destructive" size="sm" disabled={busy || !readiness?.keyStored} onClick={() => void run(() => agent.forgetKey())}>Schlüssel entfernen</Button>
+      </div>
+      <HealthSummary report={snapshot.health} />
+    </section>
+    <details className="advanced-settings"><summary>Erweitert</summary>
+      <form onSubmit={event => void saveAdvanced(event)} className="advanced-form">
+        <div className="field"><Label htmlFor="settings-program">Programm</Label><Input id="settings-program" value={program} onChange={event => setProgram(event.target.value)} spellCheck={false} /></div>
+        <div className="field"><Label htmlFor="settings-args">Argumente</Label><Input id="settings-args" value={args} onChange={event => setArgs(event.target.value)} spellCheck={false} /></div>
+        <Button type="submit" variant="outline" size="sm" disabled={busy}>Agent-Einstellungen speichern</Button>
+      </form>
+      <p className="advanced-hint">Projektordner: {snapshot.cwd ? shortPath(snapshot.cwd, 52) : "kein Projekt gewählt"}</p>
+      {snapshot.diagnostics.length > 0 && <details className="diagnostics"><summary>Diagnose anzeigen</summary><pre>{snapshot.diagnostics.join("\n")}</pre></details>}
+    </details>
     {error && <p className="form-error" role="alert">{error}</p>}
-    {snapshot.diagnostics.length > 0 && <details className="diagnostics">
-      <summary>Diagnose des Agenten</summary>
-      <pre>{snapshot.diagnostics.join("\n")}</pre>
-    </details>}
-    <DialogFooter className="settings-actions">
-      <Button type="button" variant="ghost" onClick={onClose}>{firstRun ? "Später" : "Schließen"}</Button>
-      <Button type="submit" disabled={saving}>{saving ? "Speichert …" : firstRun ? "Weiter" : "Speichern"}</Button>
-    </DialogFooter>
-  </form>;
+    <div className="settings-end"><Button type="button" variant="ghost" onClick={() => { saveName(name); close(); }}>Schließen</Button></div>
+  </div>;
 }
 
 function ToolRow({ item, openPanel }: { item: ToolItem; openPanel: (panel: Panel) => void }) {
@@ -111,8 +186,8 @@ function ToolRow({ item, openPanel }: { item: ToolItem; openPanel: (panel: Panel
       <div className="tool-details">
         <p>{toolKindLabel(item.toolKind)}</p>
         {output && <pre>{output}</pre>}
-        {item.diffs.length > 0 && <Button variant="ghost" size="sm" type="button" onClick={() => openPanel("changes")}>Änderungen ansehen <ArrowRight size={14} /></Button>}
-        {item.toolKind === "execute" && <Button variant="ghost" size="sm" type="button" onClick={() => openPanel("terminal")}>Ausgabe ansehen <ArrowRight size={14} /></Button>}
+        {item.diffs.length > 0 && <Button variant="ghost" size="sm" type="button" onClick={() => openPanel("changes")}>Änderungen ansehen <ChevronRight size={14} /></Button>}
+        {item.toolKind === "execute" && <Button variant="ghost" size="sm" type="button" onClick={() => openPanel("terminal")}>Ausgabe ansehen <ChevronRight size={14} /></Button>}
       </div>
     </details>
   </div>;
@@ -174,11 +249,12 @@ function ContextPanel({ panel, tools, close }: { panel: Panel; tools: ToolItem[]
   </aside>;
 }
 
-function App() {
+function App({ preferences, setPreferences }: { preferences: Preferences; setPreferences: (next: Preferences) => void }) {
   const snapshot = useAgent();
   const [initialized, setInitialized] = useState(false);
-  const [dismissedIntro, setDismissedIntro] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [mobileTab, setMobileTab] = useState("chat");
   const [panel, setPanel] = useState<Panel | null>(null);
   const [draft, setDraft] = useState("");
   const [uiError, setUiError] = useState<string | null>(null);
@@ -193,83 +269,100 @@ function App() {
   const hasFiles = tools.some(item => ["read", "edit", "delete", "move", "search"].includes(item.toolKind));
   const hasTerminal = tools.some(item => item.toolKind === "execute");
   const empty = snapshot.transcript.length === 0;
-  const intro = initialized && !dismissedIntro && snapshot.sessions.length === 0 && snapshot.transcript.length === 0 &&
-    !agent.config?.env.some(item => item.name === KEY_VAR && item.file);
 
-  async function send(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text || !snapshot.canSend) return;
+  async function send(text: string) {
+    const prompt = text.trim();
+    if (!prompt || !snapshot.canSend) return;
     setDraft("");
     setUiError(null);
-    try { await agent.send(text); }
-    catch (cause) { setDraft(text); setUiError(messageOf(cause)); }
+    try { await agent.send(prompt); }
+    catch (cause) { setDraft(prompt); setUiError(messageOf(cause)); }
   }
 
+  async function openProject() {
+    try { await agent.pickWorkspace(); setPanel(null); setMobileTab("chat"); }
+    catch (cause) { setUiError(messageOf(cause)); }
+  }
+
+  if (!initialized) return <main className="loading-screen"><Brand /><span>jichi wird vorbereitet …</span></main>;
+  if (snapshot.needsSetup) return <Onboarding />;
+
   const nav = <div className="sidebar-content">
-    <NavItem className="new-chat-nav" onClick={() => { void agent.newSession().catch(cause => setUiError(messageOf(cause))); setPanel(null); setDraft(""); }}><Plus size={17} /> Neuer Chat</NavItem>
-    <div className="sidebar-group"><span className="eyebrow">PROJEKT</span>
-      <NavItem level="sub" onClick={() => setSettingsOpen(true)} title={snapshot.cwd ?? "Projekt wählen"}><FolderOpen size={16} /><span className="truncate">{snapshot.cwd ? shortPath(snapshot.cwd, 27) : "Kein Projekt gewählt"}</span></NavItem>
+    <NavItem className="new-chat-nav" onClick={() => { void agent.newSession().catch(cause => setUiError(messageOf(cause))); setPanel(null); setDraft(""); setMobileTab("chat"); }}><Plus size={18} /> Neuer Chat</NavItem>
+    <div className="sidebar-group"><span className="sidebar-label">PROJEKT</span>
+      <NavItem level="sub" onClick={() => void openProject()} title={snapshot.cwd ?? "Projekt öffnen"}><FolderOpen size={16} /><span className="truncate">{snapshot.cwd ? shortPath(snapshot.cwd, 25) : "Projekt öffnen"}</span></NavItem>
     </div>
-    <div className="sidebar-group sessions-group"><span className="eyebrow">CHATS</span>
+    <div className="sidebar-group sessions-group"><span className="sidebar-label">CHATS</span>
       {snapshot.sessions.length === 0 ? <p className="sidebar-empty">Noch keine Chats</p> : snapshot.sessions.map(session =>
-        <NavItem key={session.id} level="sub" active={session.id === snapshot.sessionId} title={`${session.title}\n${session.workspace ?? ""}\n${relativeTime(session.modified)}`} onClick={() => { void agent.loadSession(session.id).catch(cause => setUiError(messageOf(cause))); setPanel(null); }}>
+        <NavItem key={session.id} level="sub" active={session.id === snapshot.sessionId} title={`${session.title}\n${session.workspace ?? ""}\n${relativeTime(session.modified)}`} onClick={() => { void agent.loadSession(session.id).catch(cause => setUiError(messageOf(cause))); setPanel(null); setMobileTab("chat"); }}>
           <span className="truncate">{session.title}</span>
         </NavItem>)}
     </div>
   </div>;
-  const footer = <div className="sidebar-footer"><NavItem level="sub" onClick={() => setSettingsOpen(true)}><Settings2 size={16} /> Einstellungen</NavItem><ThemeToggle /></div>;
+  const footer = <div className="sidebar-footer"><NavItem level="sub" onClick={() => setSettingsOpen(true)}><Settings2 size={17} /> Einstellungen</NavItem><ThemeToggle /></div>;
+
+  const composer = <PromptInput className="composer" shape="pill" onSubmit={({ text }) => void send(text)}>
+    <PromptInputAdaptiveTextarea aria-label="Nachricht an jichi" placeholder="Frag jichi …" rows={1} value={draft} onChange={event => setDraft(event.target.value)} readOnly={!snapshot.canSend} inlineLeft={20} inlineRight={68} laneHeight={48} maxHeight={220} />
+    <InputGroupAddon align="inline-end" className="composer-send-wrap">
+      <PromptInputSubmit className="composer-send" aria-label="Nachricht senden" disabled={!snapshot.canSend || !draft.trim()} idle={!draft.trim()}><ArrowUp size={18} /></PromptInputSubmit>
+    </InputGroupAddon>
+  </PromptInput>;
 
   return <>
-    <AppShellLayout className="jichi-shell" logo={<span className="brand-lockup"><span className="brand-icon" aria-hidden="true">J</span><span><span className="wordmark">JICHI</span><span className="brand-subtitle">AI Coding Assistant</span></span></span>} nav={nav} sidebarFooter={footer} navLabel="Jichi Navigation">
+    <AppShell className="jichi-shell" mainLabel="Gespräch" left={{
+      header: <Brand />, content: nav, footer, label: "Jichi Navigation", isOpen: leftOpen,
+      onOpenChange: setLeftOpen, width: 256, expandLabel: "Navigation öffnen", collapseLabel: "Navigation schließen",
+      collapsedPreview: <div className="collapsed-brand"><Brand compact /></div>,
+    }} mobileTabs={[{ id: "chat", label: "Chat", icon: <Plus size={18} />, pane: "main" }, { id: "navigation", label: "Navigation", icon: <FolderOpen size={18} />, pane: "left" }]}
+      activeMobileTab={mobileTab} onMobileTabChange={setMobileTab} mobileTabBarLabel="Bereiche">
       <div className={`workspace ${panel ? "with-panel" : ""}`}>
         <section className={`chat ${empty ? "empty-chat" : ""}`} aria-label="Gespräch">
-          <header className="chat-header">
-            <div className="status-line"><Badge appearance="text" dot tone={badgeTone(statusTone(snapshot.status))}>{snapshot.status === "offline" && snapshot.agentVersion ? "Bereit zum Start" : statusLabel(snapshot.status)}</Badge>
-              {snapshot.cwd && <span className="header-path" title={snapshot.cwd}>{shortPath(snapshot.cwd, 42)}</span>}</div>
-            <div className="header-actions">
+          {!empty && <header className="chat-toolbar">
+            <span className="chat-project" title={snapshot.cwd ?? undefined}>{snapshot.cwd ? shortPath(snapshot.cwd, 42) : statusLabel(snapshot.status)}</span>
+            <div className="toolbar-actions">
               {changes.length > 0 && <Button variant="ghost" size="sm" onClick={() => setPanel("changes")}><FileCode2 size={16} /> Änderungen</Button>}
-              {hasFiles && <Button variant="ghost" size="icon" aria-label="Dateiaktivität" title="Dateien" onClick={() => setPanel("files")}><FolderOpen size={17} /></Button>}
-              {hasTerminal && <Button variant="ghost" size="icon" aria-label="Terminalausgabe" title="Terminal" onClick={() => setPanel("terminal")}><Terminal size={17} /></Button>}
-              {snapshot.canCancel && <Button variant="ghost" size="sm" onClick={() => { void agent.cancel().catch(cause => setUiError(messageOf(cause))); }}><Square size={14} /> Abbrechen</Button>}
+              {hasFiles && <Button variant="ghost" size="icon" aria-label="Dateiaktivität" onClick={() => setPanel("files")}><FolderOpen size={17} /></Button>}
+              {hasTerminal && <Button variant="ghost" size="icon" aria-label="Terminalausgabe" onClick={() => setPanel("terminal")}><Terminal size={17} /></Button>}
+              {snapshot.canCancel && <Button variant="ghost" size="sm" onClick={() => void agent.cancel().catch(cause => setUiError(messageOf(cause)))}><Square size={14} /> Abbrechen</Button>}
             </div>
-          </header>
-          {intro ? <div className="onboarding">
-            <div className="onboarding-content"><span className="eyebrow">WILLKOMMEN</span><h1>jichi einrichten</h1><p>Verbinde jichi mit der Datei, die deinen API-Schlüssel enthält. Danach kannst du direkt loslegen.</p>
-              <SettingsForm snapshot={snapshot} firstRun onSaved={() => setDismissedIntro(true)} onClose={() => setDismissedIntro(true)} /></div>
+          </header>}
+          {empty ? <div className="empty-layout">
+            <div className="empty-content">
+              <div className="empty-state"><Brand compact /><h1>JICHI</h1><p>Dein KI-Assistent für Code</p></div>
+              <div className="empty-composer">{composer}</div>
+              {!snapshot.cwd && <button type="button" className="open-project" onClick={() => void openProject()}>
+                <span className="open-project-icon"><FolderOpen size={19} /></span><span><strong>Projekt öffnen</strong><small>Lokalen Ordner verbinden und loslegen</small></span><ChevronRight size={17} />
+              </button>}
+              {(snapshot.error || uiError) && <div className="inline-error" role="alert">{uiError || snapshot.error}<Button variant="ghost" size="icon" aria-label="Meldung schließen" onClick={() => setUiError(null)}><X size={15} /></Button></div>}
+            </div>
           </div> : <>
-            <div className="conversation-scroll" ref={scrollRef} onScroll={e => { const el = e.currentTarget; nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120; }}>
-              <div className={`conversation ${snapshot.transcript.length === 0 ? "conversation-empty" : ""}`}>
-                {empty ? <div className="empty-state"><span className="brand-icon empty-icon" aria-hidden="true">J</span><h1>JICHI</h1><p>Dein KI-Assistent für Code</p></div> : snapshot.transcript.map(item => <TranscriptEntry key={item.id} item={item} openPanel={setPanel} />)}
-                {changes.length > 0 && <Button className="changes-summary" variant="ghost" size="sm" onClick={() => setPanel("changes")}><FileCode2 size={16} /> {new Set(changes.map(d => d.path)).size} Dateien geändert <span>Änderungen ansehen</span><ChevronRight size={15} /></Button>}
-              </div>
+            <div className="conversation-scroll" ref={scrollRef} onScroll={event => { const element = event.currentTarget; nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
+              <div className="conversation">{snapshot.transcript.map(item => <TranscriptEntry key={item.id} item={item} openPanel={setPanel} />)}</div>
             </div>
-            <div className="bottom-area">
-              <PermissionBar snapshot={snapshot} report={setUiError} />
-              {(snapshot.error || uiError) && <div className="inline-error" role="alert"><span>{uiError || snapshot.error}</span><Button variant="ghost" size="icon" aria-label="Meldung schließen" onClick={() => setUiError(null)}><X size={15} /></Button></div>}
-              <form className="composer" onSubmit={send}>
-                <Textarea variant="inline" aria-label="Nachricht an jichi" placeholder="Frag jichi …" rows={2} value={draft} readOnly={!snapshot.canSend} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} />
-                <Button type="submit" size="icon" aria-label="Nachricht senden" disabled={!snapshot.canSend || !draft.trim()}><Send size={17} /></Button>
-              </form>
-              {!empty && <div className="composer-meta"><span>{!snapshot.canSend ? "Bitte warten, bis jichi wieder bereit ist." : "Enter senden · Umschalt+Enter neue Zeile"}</span></div>}
-              {empty && <div className="empty-actions">
-                {!snapshot.cwd ? <Button type="button" variant="ghost" className="empty-action" onClick={() => setSettingsOpen(true)}><span className="empty-action-icon"><FolderOpen size={19} /></span><span className="empty-action-copy"><strong>Projekt öffnen</strong><small>Arbeitsordner für jichi festlegen</small></span><ChevronRight size={17} /></Button> : <>
-                  <Button type="button" variant="ghost" className="empty-action" onClick={() => setDraft("Erkläre mir dieses Projekt.")}><span className="empty-action-icon"><FileCode2 size={19} /></span><span className="empty-action-copy"><strong>Projekt erklären</strong><small>Struktur und wichtige Komponenten verstehen</small></span><ChevronRight size={17} /></Button>
-                  <Button type="button" variant="ghost" className="empty-action" onClick={() => setDraft("Führe die Tests für dieses Projekt aus.")}><span className="empty-action-icon"><Terminal size={19} /></span><span className="empty-action-copy"><strong>Tests ausführen</strong><small>Das Projekt prüfen lassen</small></span><ChevronRight size={17} /></Button>
-                </>}
-              </div>}
+            <div className="bottom-area"><PermissionBar snapshot={snapshot} report={setUiError} />
+              {(snapshot.error || uiError) && <div className="inline-error" role="alert">{uiError || snapshot.error}<Button variant="ghost" size="icon" aria-label="Meldung schließen" onClick={() => setUiError(null)}><X size={15} /></Button></div>}
+              {composer}
+              <div className="composer-meta"><span>{snapshot.canSend ? "Enter senden · Umschalt+Enter neue Zeile" : statusLabel(snapshot.status)}</span></div>
             </div>
           </>}
         </section>
         {panel && <ContextPanel panel={panel} tools={tools} close={() => setPanel(null)} />}
       </div>
-    </AppShellLayout>
-    <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <DialogContent className="settings-dialog"><DialogHeader><DialogTitle>Einstellungen</DialogTitle><DialogDescription>Programm, Projekt und Schlüsseldatei für jichi.</DialogDescription></DialogHeader>
-        <SettingsForm key={settingsOpen ? "open" : "closed"} snapshot={snapshot} onSaved={() => { setSettingsOpen(false); setDismissedIntro(true); }} onClose={() => setSettingsOpen(false)} />
-      </DialogContent>
-    </Dialog>
+    </AppShell>
+    <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogContent className="settings-dialog">
+      <DialogHeader><DialogTitle>Einstellungen</DialogTitle><DialogDescription>Dein Profil und die Verbindung zu jichi.</DialogDescription></DialogHeader>
+      <Settings snapshot={snapshot} preferences={preferences} setPreferences={setPreferences} close={() => setSettingsOpen(false)} />
+    </DialogContent></Dialog>
   </>;
 }
 
-createRoot(document.getElementById("root")!).render(<ThemeProvider><App /></ThemeProvider>);
+function Root() {
+  const [preferences, setPreferences] = useState(() => readPreferences());
+  return <ThemeProvider theme={preferences.appearance} onThemeChange={appearance => {
+    const next = { ...preferences, appearance };
+    setPreferences(next);
+    writePreferences(next);
+  }}><App preferences={preferences} setPreferences={setPreferences} /></ThemeProvider>;
+}
+
+createRoot(document.getElementById("root")!).render(<Root />);

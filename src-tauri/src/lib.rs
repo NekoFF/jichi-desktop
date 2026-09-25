@@ -280,13 +280,19 @@ fn scan_home(program: &str) -> Option<PathBuf> {
     Some(found)
 }
 
-/// Eine Umgebungsvariable für das Kind. Entweder mit direktem Wert oder — und
-/// das ist der vorgesehene Weg für Geheimnisse — als Pfad zu einer Datei, deren
-/// Inhalt beim Start gelesen wird.
+/// Eine Umgebungsvariable für das Kind.
+///
+/// Drei Quellen, in dieser Reihenfolge: der Schlüsselbund des Betriebssystems,
+/// eine Datei, ein direkter Wert. Für Geheimnisse ist nur die erste gedacht —
+/// die beiden anderen bleiben, weil ein Rechner ohne Schlüsselbund (ein
+/// Linux-Server ohne Secret Service) sonst nicht zu bedienen wäre.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct EnvSpec {
     name: String,
+    /// Konto im Schlüsselbund. Der Wert wird hier gelesen und nirgends sonst.
+    #[serde(default)]
+    secret: Option<String>,
     #[serde(default)]
     value: Option<String>,
     #[serde(default)]
@@ -300,8 +306,13 @@ fn resolve_env(specs: &[EnvSpec]) -> Result<BTreeMap<String, String>, String> {
         if spec.name.trim().is_empty() {
             continue;
         }
-        let value = match (&spec.value, &spec.file) {
-            (_, Some(f)) if !f.trim().is_empty() => {
+        let value = match (&spec.secret, &spec.value, &spec.file) {
+            (Some(account), _, _) if !account.trim().is_empty() => {
+                secret_read(account.trim()).ok_or_else(|| {
+                    format!("{}: im Schlüsselbund liegt nichts unter „{account}“", spec.name)
+                })?
+            }
+            (_, _, Some(f)) if !f.trim().is_empty() => {
                 let path = expand_tilde(f);
                 let raw = std::fs::read_to_string(&path).map_err(|e| {
                     format!("{}: {} ist nicht lesbar ({e})", spec.name, path.display())
@@ -312,12 +323,339 @@ fn resolve_env(specs: &[EnvSpec]) -> Result<BTreeMap<String, String>, String> {
                 }
                 v
             }
-            (Some(v), _) if !v.is_empty() => v.clone(),
+            (_, Some(v), _) if !v.is_empty() => v.clone(),
             _ => continue,
         };
         out.insert(spec.name.clone(), value);
     }
     Ok(out)
+}
+
+
+// ── Schlüsselbund ────────────────────────────────────────────────────────────
+//
+// Der API-Schlüssel wird von dieser Anwendung nicht verwaltet, sondern beim
+// Betriebssystem hinterlegt — Keychain unter macOS, Credential Manager unter
+// Windows, Secret Service unter Linux. Das hat eine Eigenschaft, die mehr wert
+// ist als jede Verschlüsselung, die wir selbst bauen könnten: **es gibt keinen
+// Befehl, der den Schlüssel an die Oberfläche zurückgibt.** Er wird genau
+// einmal geschrieben und danach nur noch hier gelesen, im Moment des Starts,
+// um ihn als Umgebungsvariable an den Agenten zu reichen. Was das Fenster nie
+// sieht, kann es nicht verlieren.
+
+const SECRET_SERVICE: &str = "de.uni-giessen.hrz.jichi-desktop";
+
+fn secret_entry(account: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SECRET_SERVICE, account)
+        .map_err(|e| format!("Schlüsselbund nicht erreichbar: {e}"))
+}
+
+/// Nur innerhalb dieses Moduls. Bewusst **kein** `#[tauri::command]`.
+fn secret_read(account: &str) -> Option<String> {
+    secret_entry(account)
+        .ok()?
+        .get_password()
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+#[tauri::command]
+fn secret_store(account: String, value: String) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Der Schlüssel ist leer.".into());
+    }
+    secret_entry(&account)?
+        .set_password(value)
+        // Die Meldung nennt den Fehler, niemals den Wert.
+        .map_err(|e| format!("Der Schlüssel konnte nicht abgelegt werden: {e}"))
+}
+
+#[tauri::command]
+fn secret_present(account: String) -> bool {
+    secret_read(&account).is_some()
+}
+
+#[tauri::command]
+fn secret_forget(account: String) -> Result<(), String> {
+    match secret_entry(&account)?.delete_credential() {
+        Ok(()) => Ok(()),
+        // Nicht vorhanden ist kein Fehler: das Ziel ist erreicht.
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("Der Schlüssel konnte nicht entfernt werden: {e}")),
+    }
+}
+
+// ── Konfiguration des Agenten ────────────────────────────────────────────────
+//
+// Der Agent bringt seine eigene Konfiguration mit (`~/.jichi`): Server, Modelle,
+// und — als *Name* einer Umgebungsvariablen, nicht als Wert — woher sein
+// Schlüssel kommt. Auf einem frischen Rechner gibt es sie nicht, und ohne sie
+// startet er nicht. Genau das muss der erste Start erkennen können.
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ModelInfo {
+    name: String,
+    model: String,
+    api_base: Option<String>,
+    api_key_env: Option<String>,
+    roles: Vec<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ConfigReport {
+    path: String,
+    exists: bool,
+    /// Gesetzt, wenn die Datei da ist, aber nicht gelesen werden konnte.
+    problem: Option<String>,
+    models: Vec<ModelInfo>,
+}
+
+fn config_path() -> PathBuf {
+    home().unwrap_or_else(|| PathBuf::from(".")).join(".jichi")
+}
+
+fn read_config() -> ConfigReport {
+    let path = config_path();
+    let shown = path.to_string_lossy().into_owned();
+
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return ConfigReport { path: shown, exists: false, problem: None, models: Vec::new() };
+    };
+    let json = match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(j) => j,
+        Err(e) => {
+            return ConfigReport {
+                path: shown,
+                exists: true,
+                problem: Some(format!("Die Datei ist kein gültiges JSON: {e}")),
+                models: Vec::new(),
+            }
+        }
+    };
+
+    let models = json
+        .get("models")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|m| ModelInfo {
+                    name: m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    model: m.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    api_base: m.get("apiBase").and_then(|v| v.as_str()).map(str::to_string),
+                    api_key_env: m.get("apiKeyEnv").and_then(|v| v.as_str()).map(str::to_string),
+                    roles: m
+                        .get("roles")
+                        .and_then(|v| v.as_array())
+                        .map(|r| r.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    ConfigReport { path: shown, exists: true, problem: None, models }
+}
+
+/// Der Server der JLU. Die Modellnamen sind der Stand, den das Gateway heute
+/// anbietet; ändert er sich, sagt `doctor` es beim ersten Start sofort
+/// („the server does not list this model“) — geraten wird hier nichts.
+const JLU_API_BASE: &str = "https://api.hrz.uni-giessen.de/v1";
+const KEY_ENV: &str = "JICHI_API_KEY";
+
+fn jlu_config() -> serde_json::Value {
+    let model = |name: &str, id: &str, ctx: u32, out: u32, roles: &[&str]| {
+        let mut m = serde_json::json!({
+            "name": name,
+            "provider": "openai",
+            "model": id,
+            "apiBase": JLU_API_BASE,
+            // Der Name der Variablen, nie ihr Wert. So will es auch die
+            // Dokumentation des Agenten.
+            "apiKeyEnv": KEY_ENV,
+        });
+        if ctx > 0 {
+            m["contextLength"] = ctx.into();
+            m["maxOutputTokens"] = out.into();
+        }
+        if !roles.is_empty() {
+            m["roles"] = roles.iter().map(|r| serde_json::json!(r)).collect();
+        }
+        m
+    };
+
+    serde_json::json!({
+        "models": [
+            model("coder", "jlu/qwen3-coder-next", 196608, 65536, &[]),
+            model("long", "jlu/qwen3.8-27b", 977232, 32768, &[]),
+            model("gemma", "jlu/gemma-4-26b-it", 196608, 65536, &[]),
+            model("embed", "jlu/qwen3-embedding", 0, 0, &["embed"]),
+            model("rerank", "jlu/jina-rerank", 0, 0, &["rerank"]),
+        ]
+    })
+}
+
+/// Legt die Konfiguration des Agenten an. Verweigert, wenn es schon eine gibt —
+/// eine fremde Konfiguration zu überschreiben wäre der teuerste denkbare
+/// Bedienfehler.
+#[tauri::command]
+fn write_config(preset: String) -> Result<ConfigReport, String> {
+    if preset != "jlu" {
+        return Err(format!("unbekannte Vorlage „{preset}“"));
+    }
+    let path = config_path();
+    if path.exists() {
+        return Err(format!(
+            "{} gibt es bereits — sie wird nicht überschrieben.",
+            path.display()
+        ));
+    }
+    let text = serde_json::to_string_pretty(&jlu_config())
+        .map_err(|e| format!("Die Vorlage ließ sich nicht schreiben: {e}"))?;
+    std::fs::write(&path, format!("{text}\n"))
+        .map_err(|e| format!("{} ist nicht beschreibbar: {e}", path.display()))?;
+
+    // Sie enthält kein Geheimnis, aber sie beschreibt, wo eines herkommt.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(read_config())
+}
+
+// ── Selbstprüfung des Agenten ────────────────────────────────────────────────
+
+/// Ein Kindprozess mit Frist. Ohne sie hinge der erste Start unbegrenzt, wenn
+/// das Gateway nicht antwortet — und das ist der Moment, in dem jemand zum
+/// ersten Mal auf „Verbinden“ drückt.
+fn run_bounded(
+    path: &Path,
+    args: &[&str],
+    env: &BTreeMap<String, String>,
+    limit: std::time::Duration,
+) -> Result<(String, String, Option<i32>), String> {
+    let mut child = Command::new(path)
+        .args(args)
+        .env("PATH", child_path())
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{} ließ sich nicht starten: {e}", path.display()))?;
+
+    // In Fäden lesen: sonst blockiert ein volles Rohr den Prozess, und die
+    // Frist unten würde einen Stau messen statt einer Langsamkeit.
+    let mut out = child.stdout.take().map(|s| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = std::io::Read::read_to_string(&mut BufReader::new(s), &mut buf);
+            buf
+        })
+    });
+    let mut err = child.stderr.take().map(|s| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = std::io::Read::read_to_string(&mut BufReader::new(s), &mut buf);
+            buf
+        })
+    });
+
+    let start = std::time::Instant::now();
+    let code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code(),
+            Ok(None) => {}
+            Err(e) => return Err(format!("Warten fehlgeschlagen: {e}")),
+        }
+        if start.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "Keine Antwort nach {} Sekunden — ist das Netz erreichbar?",
+                limit.as_secs()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+
+    let stdout = out.take().and_then(|h| h.join().ok()).unwrap_or_default();
+    let stderr = err.take().and_then(|h| h.join().ok()).unwrap_or_default();
+    Ok((stdout, stderr, code))
+}
+
+/// `jichi doctor --output json` — der Agent prüft sich selbst.
+///
+/// Das ist der Grund, warum diese Anwendung nicht selbst gegen das Gateway
+/// spricht: Schlüssel, Server, Modellliste und Kontextfenster prüft der Agent
+/// bereits, mit seiner eigenen Konfiguration und seinem eigenen Netzstapel. Ein
+/// zweiter, hier nachgebauter Prüfweg könnte grün sagen, wo der echte rot ist.
+///
+/// Der Bericht wird unverändert weitergereicht: `{ok, warn, fail, checks:[…]}`.
+#[tauri::command]
+fn doctor(program: String, env: Option<Vec<EnvSpec>>) -> Result<serde_json::Value, String> {
+    let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
+    let resolved = resolve_env(env.as_deref().unwrap_or(&[]))?;
+
+    let (stdout, stderr, _code) = run_bounded(
+        &path,
+        &["doctor", "--output", "json"],
+        &resolved,
+        std::time::Duration::from_secs(45),
+    )?;
+
+    serde_json::from_str::<serde_json::Value>(stdout.trim()).map_err(|_| {
+        // Ohne Konfiguration schreibt der Agent seine Erklärung auf stderr und
+        // gar kein JSON. Diese Erklärung ist für den Benutzer brauchbarer als
+        // eine Meldung über ungültiges JSON.
+        let hint = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        if hint.is_empty() {
+            "Der Agent hat keinen lesbaren Bericht geliefert.".to_string()
+        } else {
+            hint.trim().to_string()
+        }
+    })
+}
+
+// ── Bereitschaft ─────────────────────────────────────────────────────────────
+
+/// Eine einzige Frage: kann losgelegt werden, oder fehlt noch etwas?
+///
+/// Bewusst ein Aufruf statt vier. Der erste Start soll nicht vier Antworten
+/// abwarten und dabei drei Zwischenzustände zeigen, die niemanden interessieren.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Readiness {
+    /// Voller Pfad zum Agenten, oder `null`.
+    agent: Option<String>,
+    version: Option<String>,
+    config: ConfigReport,
+    key_stored: bool,
+    key_env: String,
+    /// Wahr, wenn der erste Start nötig ist.
+    needs_setup: bool,
+}
+
+#[tauri::command]
+fn readiness() -> Readiness {
+    let launch = default_launch();
+    let agent = launch.resolved.clone();
+    let version = agent.as_deref().and_then(|_| probe(launch.program.clone()).ok());
+    let config = read_config();
+    let key_stored = secret_read(KEY_ENV).is_some();
+
+    Readiness {
+        needs_setup: agent.is_none() || !config.exists || config.models.is_empty() || !key_stored,
+        agent,
+        version,
+        config,
+        key_stored,
+        key_env: KEY_ENV.to_string(),
+    }
 }
 
 // ── Startvorschlag ───────────────────────────────────────────────────────────
@@ -342,7 +680,10 @@ struct Launch {
 #[serde(rename_all = "camelCase")]
 struct EnvHint {
     name: String,
-    file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
 }
 
 /// Übliche Orte für die Schlüsseldatei. Vorgeschlagen wird nur, was existiert;
@@ -371,16 +712,23 @@ fn default_launch() -> Launch {
 
     let resolved = which(&program).map(|p| p.to_string_lossy().into_owned());
 
-    let env: Vec<EnvHint> = key_file_candidates()
-        .into_iter()
-        .find(|p| p.is_file())
-        .map(|p| {
-            vec![EnvHint {
-                name: "JICHI_API_KEY".into(),
-                file: p.to_string_lossy().into_owned(),
-            }]
-        })
-        .unwrap_or_default();
+    // Der Schlüsselbund gewinnt. Eine Datei bleibt der zweite Weg — für einen
+    // Rechner ohne Schlüsselbund, und für den, der seine Datei schon hat.
+    let env: Vec<EnvHint> = if secret_read(KEY_ENV).is_some() {
+        vec![EnvHint { name: KEY_ENV.into(), secret: Some(KEY_ENV.into()), file: None }]
+    } else {
+        key_file_candidates()
+            .into_iter()
+            .find(|p| p.is_file())
+            .map(|p| {
+                vec![EnvHint {
+                    name: KEY_ENV.into(),
+                    secret: None,
+                    file: Some(p.to_string_lossy().into_owned()),
+                }]
+            })
+            .unwrap_or_default()
+    };
 
     let hint = if windows {
         "Windows: jichi läuft in WSL2 — nativ wird Windows vom Projekt nicht unterstützt.".into()
@@ -647,11 +995,18 @@ fn acp_running(state: State<Acp>) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Acp::default())
         .invoke_handler(tauri::generate_handler![
             default_launch,
             probe,
             sessions,
+            readiness,
+            doctor,
+            write_config,
+            secret_store,
+            secret_present,
+            secret_forget,
             acp_start,
             acp_send,
             acp_stop,
@@ -723,7 +1078,7 @@ mod tests {
         std::fs::write(&file, "  sk-geheim\n\n").unwrap();
 
         let env = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
+            name: "JICHI_API_KEY".into(), secret: None,
             value: None,
             file: Some(file.to_string_lossy().into_owned()),
         }])
@@ -732,7 +1087,7 @@ mod tests {
 
         // Eine Datei gewinnt gegen einen mitgeschickten Wert: sie ist die frischere Quelle.
         let env = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
+            name: "JICHI_API_KEY".into(), secret: None,
             value: Some("veraltet".into()),
             file: Some(file.to_string_lossy().into_owned()),
         }])
@@ -745,7 +1100,7 @@ mod tests {
     #[test]
     fn fehlende_oder_leere_schluesseldatei_nennt_den_pfad_nicht_den_inhalt() {
         let err = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
+            name: "JICHI_API_KEY".into(), secret: None,
             value: None,
             file: Some("/gibt/es/nicht.txt".into()),
         }])
@@ -757,7 +1112,7 @@ mod tests {
         let file = dir.join("leer.txt");
         std::fs::write(&file, "   \n").unwrap();
         let err = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
+            name: "JICHI_API_KEY".into(), secret: None,
             value: None,
             file: Some(file.to_string_lossy().into_owned()),
         }])
@@ -769,9 +1124,9 @@ mod tests {
     #[test]
     fn leere_namen_und_werte_werden_uebergangen() {
         let env = resolve_env(&[
-            EnvSpec { name: "  ".into(), value: Some("x".into()), file: None },
-            EnvSpec { name: "OHNE_WERT".into(), value: None, file: None },
-            EnvSpec { name: "MIT_WERT".into(), value: Some("ja".into()), file: None },
+            EnvSpec { name: "  ".into(), secret: None, value: Some("x".into()), file: None },
+            EnvSpec { name: "OHNE_WERT".into(), secret: None, value: None, file: None },
+            EnvSpec { name: "MIT_WERT".into(), secret: None, value: Some("ja".into()), file: None },
         ])
         .unwrap();
         assert_eq!(env.len(), 1);
@@ -846,6 +1201,109 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    #[test]
+    fn konfiguration_wird_gelesen_oder_als_fehlend_gemeldet() {
+        let report = read_config();
+        assert!(report.path.ends_with(".jichi"));
+        if report.exists && report.problem.is_none() {
+            // Wenn es sie gibt, muss sie brauchbar sein: Modelle mit Namen,
+            // und der Schlüssel als *Name* einer Variablen, nie als Wert.
+            for m in &report.models {
+                assert!(!m.name.is_empty(), "Modell ohne Namen");
+                assert!(
+                    !m.api_key_env.as_deref().unwrap_or("").contains("sk-"),
+                    "in apiKeyEnv steht ein Schlüssel statt eines Variablennamens"
+                );
+            }
+        }
+    }
+
+    /// Der Schlüsselbund des Betriebssystems, hin und zurück.
+    ///
+    /// Übersprungen, weil er je nach Rechner nachfragt oder fehlt (ein
+    /// Linux-Server ohne Secret Service hat keinen):
+    ///
+    ///     cargo test -- --ignored --nocapture
+    #[test]
+    #[ignore = "greift auf den Schlüsselbund des Systems zu"]
+    fn schluesselbund_haelt_und_gibt_zurueck() {
+        let konto = "jichi-desktop-test-konto";
+        let wert = "geheim-fuer-den-test-12345";
+
+        secret_store(konto.into(), wert.into()).expect("ablegen");
+        assert!(secret_present(konto.into()), "gerade abgelegt, also vorhanden");
+
+        // Über den Weg, den auch der Start nimmt.
+        let env = resolve_env(&[EnvSpec {
+            name: "JICHI_API_KEY".into(),
+            secret: Some(konto.into()),
+            value: None,
+            file: None,
+        }])
+        .expect("auflösen");
+        assert_eq!(env.get("JICHI_API_KEY").map(String::as_str), Some(wert));
+
+        secret_forget(konto.into()).expect("entfernen");
+        assert!(!secret_present(konto.into()), "entfernt, also weg");
+        // Zweimal entfernen ist kein Fehler.
+        secret_forget(konto.into()).expect("nochmal entfernen");
+
+        // Und ohne Eintrag muss der Start mit einer klaren Meldung scheitern,
+        // nicht mit einer leeren Variablen.
+        let err = resolve_env(&[EnvSpec {
+            name: "JICHI_API_KEY".into(),
+            secret: Some(konto.into()),
+            value: None,
+            file: None,
+        }])
+        .unwrap_err();
+        assert!(err.contains("Schlüsselbund"), "{err}");
+    }
+
+    /// `doctor --output json` gegen den echten Agenten.
+    #[test]
+    #[ignore = "braucht ein gebautes jichi, Konfiguration und Netz"]
+    fn doctor_liefert_einen_bericht() {
+        let bericht = doctor(
+            "jichi".into(),
+            Some(vec![EnvSpec {
+                name: "JICHI_API_KEY".into(),
+                secret: None,
+                value: None,
+                file: Some("~/.config/jlu/apikey.txt".into()),
+            }]),
+        )
+        .expect("Bericht");
+
+        let ok = bericht.get("ok").and_then(|v| v.as_u64()).unwrap_or(0);
+        let fail = bericht.get("fail").and_then(|v| v.as_u64()).unwrap_or(999);
+        println!("ok={ok} fail={fail}");
+        assert!(ok > 5, "zu wenige bestandene Prüfungen: {ok}");
+        assert_eq!(fail, 0, "der Agent meldet Fehler: {bericht}");
+
+        // Die Prüfungen, an denen der erste Start hängt.
+        let labels: Vec<String> = bericht
+            .get("checks")
+            .and_then(|c| c.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|c| c.get("label").and_then(|l| l.as_str()).map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(labels.iter().any(|l| l.contains("API key present")), "{labels:?}");
+        assert!(labels.iter().any(|l| l.contains("server reachable")), "{labels:?}");
+    }
+
+    #[test]
+    fn bereitschaft_beantwortet_die_eine_frage() {
+        let r = readiness();
+        assert_eq!(r.key_env, "JICHI_API_KEY");
+        // Fehlt irgendetwas, muss der erste Start verlangt werden.
+        let fehlt = r.agent.is_none() || !r.config.exists || r.config.models.is_empty() || !r.key_stored;
+        assert_eq!(r.needs_setup, fehlt);
+    }
+
     /// Der ganze Weg gegen den echten Agenten: finden, Schlüssel aus der Datei
     /// setzen, starten, ACP sprechen.
     ///
@@ -863,7 +1321,7 @@ mod tests {
         println!("gefunden: {}", path.display());
 
         let env = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
+            name: "JICHI_API_KEY".into(), secret: None,
             value: None,
             file: Some("~/.config/jlu/apikey.txt".into()),
         }])

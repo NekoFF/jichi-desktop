@@ -16,8 +16,8 @@
         "title": "jichi",
         "width": 1100,
         "height": 760,
-        "minWidth": 720,
-        "minHeight": 480,
+        "minWidth": 1024,
+        "minHeight": 620,
         "titleBarStyle": "Visible"
       }
     ],

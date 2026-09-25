@@ -18,7 +18,7 @@ import type {
   ToolKind,
   ToolStatus,
 } from "./protocol.ts";
-import type { StoredSession } from "./transport.ts";
+import type { DoctorReport, Readiness, StoredSession } from "./transport.ts";
 
 /**
  * Obergrenze für die gespeicherte Ausgabe eines Werkzeugs.
@@ -99,6 +99,15 @@ export interface Snapshot {
   sessions: readonly StoredSession[];
   /** stderr des Agenten, jüngste zuletzt. Diagnose, nicht Protokoll. */
   diagnostics: readonly string[];
+  /** Bereitschaft des Rechners. `null`, solange die Antwort aussteht. */
+  readiness: Readiness | null;
+  /** Der letzte Selbstbericht des Agenten (`doctor`), oder `null`. */
+  health: DoctorReport | null;
+  /**
+   * Der erste Start ist nötig. Bleibt `false`, solange `readiness` aussteht —
+   * sonst blitzt der Einrichtungsbildschirm bei jedem Programmstart kurz auf.
+   */
+  needsSetup: boolean;
   canSend: boolean;
   canCancel: boolean;
 }
@@ -115,6 +124,9 @@ export function emptySnapshot(): Snapshot {
     permission: null,
     sessions: [],
     diagnostics: [],
+    readiness: null,
+    health: null,
+    needsSetup: false,
     canSend: true,
     canCancel: false,
   };
@@ -129,11 +141,20 @@ export function emptySnapshot(): Snapshot {
  * Berechtigungsfrage, denn genau dort wartet der Agent am längsten.
  */
 export function withDerived(state: Snapshot): Snapshot {
-  const canSend = state.status === "ready" || state.status === "offline";
+  const needsSetup = state.readiness?.needsSetup ?? false;
+  // Solange etwas fehlt, darf nicht gesendet werden: ein Start ohne Schlüssel
+  // oder ohne Konfiguration sieht aus wie ein Defekt und ist keiner.
+  const canSend = !needsSetup && (state.status === "ready" || state.status === "offline");
   const canCancel =
     state.status === "busy" || state.status === "cancelling" || state.permission !== null;
-  if (canSend === state.canSend && canCancel === state.canCancel) return state;
-  return { ...state, canSend, canCancel };
+  if (
+    canSend === state.canSend &&
+    canCancel === state.canCancel &&
+    needsSetup === state.needsSetup
+  ) {
+    return state;
+  }
+  return { ...state, canSend, canCancel, needsSetup };
 }
 
 // ── Inhalte zu Text ──────────────────────────────────────────────────────────

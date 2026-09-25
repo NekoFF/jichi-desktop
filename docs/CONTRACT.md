@@ -51,14 +51,48 @@ interface Snapshot {
   permission: PendingPermission | null;
   sessions: readonly StoredSession[];
   diagnostics: readonly string[]; // stderr des Agenten, jüngste zuletzt
+
+  readiness: Readiness | null;    // Agent da? Konfiguration da? Schlüssel da?
+  health: DoctorReport | null;    // letzter Selbstbericht des Agenten
+  needsSetup: boolean;            // der erste Start ist nötig
   canSend: boolean;
   canCancel: boolean;
 }
 ```
 
-`canSend` und `canCancel` sind bereits abgeleitet. **Nicht neu herleiten** —
-`canSend` gilt absichtlich auch offline (Senden verbindet selbst), `canCancel`
-auch bei offener Berechtigungsfrage.
+`canSend`, `canCancel` und `needsSetup` sind bereits abgeleitet. **Nicht neu
+herleiten** — `canSend` gilt absichtlich auch offline (Senden verbindet selbst)
+und ist `false`, solange etwas fehlt; `canCancel` gilt auch bei offener
+Berechtigungsfrage. `needsSetup` bleibt `false`, bis die Antwort da ist, damit
+der Einrichtungsbildschirm nicht bei jedem Programmstart kurz aufblitzt.
+
+### Erster Start
+
+```ts
+interface Readiness {
+  agent: string | null;    // voller Pfad, oder null: nicht gefunden
+  version: string | null;  // "jichi 0.10.0"
+  config: { path, exists, problem, models: ModelInfo[] };
+  keyStored: boolean;
+  keyEnv: string;          // "JICHI_API_KEY"
+  needsSetup: boolean;
+}
+
+interface DoctorReport {
+  ok: number; warn: number; fail: number; exit: number;
+  checks: Array<{ status: "ok" | "warn" | "fail"; label: string; detail: string }>;
+}
+```
+
+`agent.setup(apiKey)` ist der **einzige** Weg, einen Schlüssel entgegenzunehmen.
+Er legt ihn im Schlüsselbund des Betriebssystems ab, legt bei Bedarf die
+Konfiguration des Agenten an und lässt den Agenten sich selbst prüfen
+(`jichi doctor`). Der Rückgabewert ist dieser Bericht.
+
+**Der Schlüssel darf nirgends sonst hin.** Nicht in `localStorage`, nicht in
+den Zustand, nicht in eine Datei, nicht in ein Protokoll. Es gibt keinen Befehl,
+der ihn zurückgibt — auch nicht für die Anzeige. Das Eingabefeld wird nach dem
+Absenden geleert.
 
 ### `transcript`
 
@@ -107,6 +141,17 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.setConfig(config)` | Einstellungen speichern und neu verbinden. |
 | `agent.config` | Aktuelle Einstellungen, oder `null` vor `init()`. |
 | `agent.disconnect()` | Prozess beenden. |
+| `agent.setup(apiKey)` | Ersten Start abschließen. Liefert den `DoctorReport`. |
+| `agent.checkHealth()` | Nur prüfen, nichts ändern (für die Diagnose). |
+| `agent.forgetKey()` | Schlüssel aus dem Schlüsselbund entfernen. |
+| `agent.refreshReadiness()` | `readiness` neu ermitteln. |
+| `agent.pickWorkspace()` | Ordnerauswahl des Systems, dann dort neue Sitzung. |
+| `agent.openWorkspace(path)` | Dasselbe mit bekanntem Pfad. |
+
+Für Name und Erscheinungsbild gibt es `readPreferences()`, `writePreferences()`
+und `applyAppearance()` in `src/core/preferences.ts` — keine eigene Ablage
+erfinden. `applyAppearance` setzt `data-theme` auf `<html>`, dieselbe Fläche, auf
+der das Design System hell und dunkel unterscheidet.
 
 ## 4. Wortwahl und Ton
 
@@ -131,6 +176,9 @@ semantischen Token trifft die Oberfläche, an genau einer Stelle.
 
 Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
 
+0. **Erster Start** — `needsSetup === true`. Deckt alles zu: Name, Schlüssel,
+   ein Knopf. Danach der Bericht aus `setup()`. Siehe
+   `docs/AUFTRAG_OBERFLAECHE.md`.
 1. **Leer** — noch kein Gespräch.
 2. **Eingabe** — `canSend === false` muss sichtbar sein, nicht nur wirkungslos.
 3. **Strömender Text** — `streaming: true`.
@@ -140,8 +188,12 @@ Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
 7. **Agent beendet** — `offline` plus ein `notice` mit `level: "error"`.
 8. **Fehler beim Start** — `status: "error"`, `error` ist der fertige Satz.
 9. **Sitzungsliste** — Titel, Zeit, Arbeitsverzeichnis; die aktive markiert.
-10. **Einstellungen** — Programm, Argumente, Arbeitsverzeichnis, **Pfad zur
-    Schlüsseldatei**, und die Diagnose (`diagnostics`).
+10. **Einstellungen** — in drei Ebenen, nicht in einer Liste:
+    *Allgemein* (Name, Erscheinungsbild), *KI-Verbindung* (Status aus
+    `readiness`, Modelle, „Verbindung prüfen“, „Schlüssel entfernen“) und
+    *Erweitert* (Programm, Argumente, Arbeitsverzeichnis, `diagnostics`).
+    Das Arbeitsverzeichnis ist **keine Einstellung**, sondern das Ergebnis von
+    „Projekt öffnen“.
 
 `src/main.ts` zeichnet alle zehn ohne Framework. Als Vorlage lesen, nicht
 übernehmen.
@@ -155,15 +207,15 @@ Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
 - **Keine festen Farben.** Regel des Design Systems: semantische Token statt
   `bg-blue-500` oder `style={{ color: "#123456" }}`.
 - **Keine eigenen Grundbausteine.** Erst im Design System suchen.
-- **Der Schlüssel bleibt in seiner Datei.** Die Einstellungen speichern den
-  *Pfad*; gelesen wird er von der Rust-Seite beim Start. Kein Eingabefeld, das
-  einen Schlüsselwert entgegennimmt und ablegt.
+- **Der Schlüssel bleibt im Schlüsselbund.** `agent.setup(key)` ist der einzige
+  Weg hinein; heraus führt keiner. Kein Feld, das ihn anzeigt, kein Wert im
+  Zustand, keine Kopie in `localStorage`.
 
 ## 7. Prüfen
 
 ```sh
-npm run check        # Typen + 31 Prüfungen des Kerns gegen einen erfundenen Agenten
-npm run check:rust   # 8 Prüfungen der Rust-Seite
+npm run check        # Typen + 42 Prüfungen des Kerns gegen einen erfundenen Agenten
+npm run check:rust   # 11 Prüfungen der Rust-Seite
 npm run tauri dev    # die Anwendung
 ```
 
