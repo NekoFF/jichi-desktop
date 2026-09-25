@@ -4,10 +4,10 @@ import {
   AppShell, Badge, Button, Dialog, DialogContent, DialogDescription,
   DialogHeader, DialogTitle, Input, InputGroupAddon, Label, NavItem,
   PromptInput, PromptInputAdaptiveTextarea, PromptInputSubmit,
-  ThemeProvider, useTheme,
+  SidebarAction, SidebarPanel, ThemeProvider, useTheme,
 } from "@ki4jlu/design-system";
-import { ArrowUp, ChevronDown, ChevronRight, Clock3, FileCode2, FileText,
-  FolderOpen, HelpCircle, Mic, Moon, PanelRightClose, Plus, Search,
+import { ArrowUp, ChevronRight, Clock3, FileCode2, FileText,
+  FolderOpen, Moon, PanelRightClose, Plus, Search,
   Settings2, Square, Sun, Terminal, X } from "lucide-react";
 import {
   agent, formatArgs, parseArgs, permissionTone, readPreferences,
@@ -142,7 +142,7 @@ function Settings({ snapshot, preferences, setPreferences, close }: {
 
   const readiness = snapshot.readiness;
   const status = readiness?.keyStored
-    ? `${readiness.config.models.length} Modell${readiness.config.models.length === 1 ? "" : "e"} · ${readiness.version ?? "jichi"}`
+    ? `Schlüssel gespeichert · ${readiness.config.models.length} Modell${readiness.config.models.length === 1 ? "" : "e"} · ${readiness.version ?? "jichi"}`
     : readiness && !readiness.needsSetup
       ? "Schlüsseldatei vorhanden · bereit"
     : "Einrichtung erforderlich";
@@ -156,7 +156,7 @@ function Settings({ snapshot, preferences, setPreferences, close }: {
         </select></div>
     </section>
     <section><h3>KI-Verbindung</h3>
-      <div className="connection-status"><Badge appearance="text" dot tone={readiness?.keyStored ? "success" : "warning"}>{status}</Badge></div>
+      <div className="connection-status"><Badge appearance="text" tone="neutral">{status}</Badge></div>
       <div className="settings-buttons">
         <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run(() => agent.checkHealth())}>Verbindung prüfen</Button>
         <Button type="button" variant="ghost-destructive" size="sm" disabled={busy || !readiness?.keyStored} onClick={() => void run(() => agent.forgetKey())}>Schlüssel entfernen</Button>
@@ -257,7 +257,6 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
   const { resolvedTheme, setTheme } = useTheme();
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [leftOpen, setLeftOpen] = useState(true);
   const [mobileTab, setMobileTab] = useState("chat");
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -307,18 +306,12 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
     catch (cause) { setDraft(prompt); setUiError(messageOf(cause)); }
   }
 
-  async function openProject(suggestedPrompt?: string) {
+  async function openProject() {
     try {
-      if (suggestedPrompt && snapshot.cwd) {
-        setDraft(suggestedPrompt);
-        setMobileTab("chat");
-        return;
-      }
       const picked = await agent.pickWorkspace();
       if (picked) {
         setPanel(null);
         setMobileTab("chat");
-        if (suggestedPrompt) setDraft(suggestedPrompt);
       }
     }
     catch (cause) { setUiError(messageOf(cause)); }
@@ -328,42 +321,38 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
   if (snapshot.needsSetup) return <Onboarding />;
 
   const matchingSessions = snapshot.sessions.filter(session => session.title.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()));
-  const nav = <div className="sidebar-content">
-    <label className="sidebar-search"><Search size={19} aria-hidden="true" /><input ref={searchRef} type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Search chats" aria-label="Search chats" /><kbd>⌘K</kbd></label>
-    <button type="button" className="new-chat-nav" onClick={() => { void agent.newSession().catch(cause => setUiError(messageOf(cause))); setPanel(null); setDraft(""); setMobileTab("chat"); }}><Plus size={22} /><span>New chat</span><kbd>⌘N</kbd></button>
-    <div className="sidebar-group"><span className="sidebar-label">PROJEKT</span>
-      <button type="button" className="sidebar-project" onClick={() => void openProject()} title={snapshot.cwd ?? "Open a project"}><FolderOpen size={19} /><span className="truncate">{snapshot.cwd ? shortPath(snapshot.cwd, 29) : "No project selected"}</span><ChevronRight size={17} /></button>
+  const nav = <SidebarPanel className="jichi-nav-panel" head={<div className="sidebar-controls">
+    <label className="sidebar-search"><Search size={17} aria-hidden="true" /><input ref={searchRef} type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Search chats" aria-label="Search chats" /><kbd>⌘K</kbd></label>
+    <SidebarAction className="new-chat-nav" icon={<Plus size={17} />} onClick={() => { void agent.newSession().catch(cause => setUiError(messageOf(cause))); setPanel(null); setDraft(""); setMobileTab("chat"); }}><span>New chat</span><kbd>⌘N</kbd></SidebarAction>
+    <div className="sidebar-group"><span className="sidebar-label">PROJECT</span>
+      <button type="button" className="sidebar-project" onClick={() => void openProject()} title={snapshot.cwd ?? "Open a project"}><FolderOpen size={17} /><span className="truncate">{snapshot.cwd ? shortPath(snapshot.cwd, 24) : "No project selected"}</span><ChevronRight size={15} /></button>
     </div>
-    <div className="sidebar-group sessions-group"><span className="sidebar-label">CHATS</span>
+  </div>}>
+    <div className="sessions-list"><span className="sidebar-label">CHATS</span>
       {snapshot.sessions.length === 0 ? <div className="sidebar-empty"><Clock3 size={19} /><span><strong>No chats yet</strong><small>Your conversations will appear here</small></span></div> : matchingSessions.length === 0 ? <p className="sidebar-no-results">No matching chats</p> : matchingSessions.map(session =>
         <NavItem key={session.id} level="sub" active={session.id === snapshot.sessionId} title={`${session.title}\n${session.workspace ?? ""}\n${relativeTime(session.modified)}`} onClick={() => { void agent.loadSession(session.id).catch(cause => setUiError(messageOf(cause))); setPanel(null); setMobileTab("chat"); }}>
           <span className="truncate">{session.title}</span>
         </NavItem>)}
     </div>
-  </div>;
-  const footer = <div className="sidebar-footer"><button type="button" onClick={() => setSettingsOpen(true)}><Settings2 size={22} /> Settings</button><button type="button" onClick={() => setHelpOpen(true)}><HelpCircle size={22} /> Help</button></div>;
+  </SidebarPanel>;
+  const footer = <div className="sidebar-footer"><button type="button" onClick={() => setSettingsOpen(true)}><Settings2 size={18} /> Settings</button></div>;
 
   const composer = <PromptInput className="composer" shape="pill" onSubmit={({ text }) => void send(text)}>
-    <InputGroupAddon align="inline-start" className="composer-add-wrap"><button type="button" className="composer-icon" aria-label="Open a project" title="Open a project" onClick={() => void openProject()}><Plus size={22} /></button></InputGroupAddon>
-    <PromptInputAdaptiveTextarea aria-label="Message Jichi" placeholder="Ask Jichi anything..." rows={1} value={draft} onChange={event => setDraft(event.target.value)} readOnly={!snapshot.canSend} inlineLeft={64} inlineRight={215} laneHeight={52} maxHeight={220} />
+    <PromptInputAdaptiveTextarea aria-label="Message Jichi" placeholder="Ask Jichi anything..." rows={1} value={draft} onChange={event => setDraft(event.target.value)} readOnly={!snapshot.canSend} inlineLeft={20} inlineRight={64} laneHeight={48} maxHeight={220} />
     <InputGroupAddon align="inline-end" className="composer-send-wrap">
-      <span className="composer-model" aria-label="The agent selects the model automatically" title="The agent selects the model automatically">Auto <ChevronDown size={16} /></span>
-      <span className="composer-divider" aria-hidden="true" />
-      <button type="button" className="composer-icon" aria-label="Voice input unavailable" title="Voice input is not available yet" disabled><Mic size={21} /></button>
-      <span className="composer-divider" aria-hidden="true" />
-      <PromptInputSubmit className="composer-send" aria-label="Send message" disabled={!snapshot.canSend || !draft.trim()} idle={!draft.trim()}><ArrowUp size={21} /></PromptInputSubmit>
+      <PromptInputSubmit className="composer-send" aria-label="Send message" disabled={!snapshot.canSend || !draft.trim()} idle={!draft.trim()}><ArrowUp size={19} /></PromptInputSubmit>
     </InputGroupAddon>
   </PromptInput>;
 
   return <>
     <AppShell className="jichi-shell" mainLabel="Gespräch" left={{
       header: <Brand />, content: nav, footer, label: "Jichi Navigation", isOpen: leftOpen,
-      onOpenChange: setLeftOpen, width: 350, expandLabel: "Navigation öffnen", collapseLabel: "Navigation schließen",
+      onOpenChange: setLeftOpen, width: 256, expandLabel: "Navigation öffnen", collapseLabel: "Navigation schließen",
       collapsedPreview: <div className="collapsed-brand"><Brand compact /></div>,
     }} mobileTabs={[{ id: "chat", label: "Chat", icon: <Plus size={18} />, pane: "main" }, { id: "navigation", label: "Navigation", icon: <FolderOpen size={18} />, pane: "left" }]}
       activeMobileTab={mobileTab} onMobileTabChange={setMobileTab} mobileTabBarLabel="Bereiche">
       <div className={`workspace ${panel ? "with-panel" : ""}`}>
-        <div className="top-actions"><button type="button" className="theme-button" aria-label={resolvedTheme === "light" ? "Switch to dark mode" : "Switch to light mode"} onClick={() => setTheme(resolvedTheme === "light" ? "dark" : "light")}>{resolvedTheme === "light" ? <Sun size={24} /> : <Moon size={24} />}</button><span className="top-separator" aria-hidden="true" /><button type="button" className="avatar-button" aria-label="Open settings" title={preferences.name || "Settings"} onClick={() => setSettingsOpen(true)}>{preferences.name.trim().slice(0, 1).toLocaleUpperCase() || "J"}</button></div>
+        {empty && <div className="top-actions"><button type="button" className="theme-button" aria-label={resolvedTheme === "light" ? "Switch to dark mode" : "Switch to light mode"} onClick={() => setTheme(resolvedTheme === "light" ? "dark" : "light")}>{resolvedTheme === "light" ? <Sun size={19} /> : <Moon size={19} />}</button></div>}
         <section className={`chat ${empty ? "empty-chat" : ""}`} aria-label="Gespräch">
           {!empty && <header className="chat-toolbar">
             <span className="chat-project" title={snapshot.cwd ?? undefined}>{snapshot.cwd ? shortPath(snapshot.cwd, 42) : statusLabel(snapshot.status)}</span>
@@ -379,9 +368,10 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
               <div className="empty-state"><Brand compact /><h1>JICHI</h1><p>Your AI coding assistant</p></div>
               <div className="empty-composer">{composer}</div>
               <div className="empty-actions">
-                <button type="button" className="empty-action" onClick={() => void openProject()}><span className="empty-action-icon"><FolderOpen size={22} /></span><span><strong>Open a project</strong><small>Connect a local folder to get started</small></span><ChevronRight size={18} /></button>
-                <button type="button" className="empty-action" onClick={() => void openProject("Explain this project and its key components.")}><span className="empty-action-icon"><FileText size={22} /></span><span><strong>Explain this project</strong><small>Understand the structure and key components</small></span><ChevronRight size={18} /></button>
-                <button type="button" className="empty-action" onClick={() => void openProject("Run the tests for this project and summarize the results.")}><span className="empty-action-icon"><Terminal size={22} /></span><span><strong>Run the tests</strong><small>Build and run tests for your project</small></span><ChevronRight size={18} /></button>
+                {snapshot.cwd ? <>
+                  <button type="button" className="empty-action" disabled={!snapshot.canSend} onClick={() => void send("Explain this project and its key components.")}><span className="empty-action-icon"><FileText size={18} /></span><span><strong>Explain this project</strong><small>Understand the structure and key components</small></span><ChevronRight size={16} /></button>
+                  <button type="button" className="empty-action" disabled={!snapshot.canSend} onClick={() => void send("Run the tests for this project and summarize the results.")}><span className="empty-action-icon"><Terminal size={18} /></span><span><strong>Run the tests</strong><small>Build and run tests for your project</small></span><ChevronRight size={16} /></button>
+                </> : <button type="button" className="empty-action" onClick={() => void openProject()}><span className="empty-action-icon"><FolderOpen size={18} /></span><span><strong>Open a project</strong><small>Connect a local folder to get started</small></span><ChevronRight size={16} /></button>}
               </div>
               {(snapshot.error || uiError) && <div className="inline-error" role="alert">{uiError || snapshot.error}<Button variant="ghost" size="icon" aria-label="Meldung schließen" onClick={() => setUiError(null)}><X size={15} /></Button></div>}
             </div>
@@ -392,7 +382,6 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
             <div className="bottom-area"><PermissionBar snapshot={snapshot} report={setUiError} />
               {(snapshot.error || uiError) && <div className="inline-error" role="alert">{uiError || snapshot.error}<Button variant="ghost" size="icon" aria-label="Meldung schließen" onClick={() => setUiError(null)}><X size={15} /></Button></div>}
               {composer}
-              <div className="composer-meta"><span>{snapshot.canSend ? "Enter senden · Umschalt+Enter neue Zeile" : statusLabel(snapshot.status)}</span></div>
             </div>
           </>}
         </section>
@@ -403,7 +392,6 @@ function App({ preferences, setPreferences }: { preferences: Preferences; setPre
       <DialogHeader><DialogTitle>Einstellungen</DialogTitle><DialogDescription>Dein Profil und die Verbindung zu jichi.</DialogDescription></DialogHeader>
       <Settings snapshot={snapshot} preferences={preferences} setPreferences={setPreferences} close={() => setSettingsOpen(false)} />
     </DialogContent></Dialog>
-    <Dialog open={helpOpen} onOpenChange={setHelpOpen}><DialogContent><DialogHeader><DialogTitle>Jichi Help</DialogTitle><DialogDescription>Start with a project folder, then ask Jichi about its code.</DialogDescription></DialogHeader><div className="help-copy"><p><strong>Open a project</strong> selects a local folder for your conversation.</p><p><strong>New chat</strong> starts a separate conversation. Use ⌘N or Ctrl+N.</p><p><strong>Search chats</strong> filters your saved conversations. Use ⌘K or Ctrl+K.</p></div></DialogContent></Dialog>
   </>;
 }
 
