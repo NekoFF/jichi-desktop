@@ -139,8 +139,8 @@ function Einrichtung({
         <Bericht bericht={bericht} />
 
         <p className="fussnote">
-          Der Schlüssel wird im Schlüsselbund dieses Geräts abgelegt — nicht in einer Datei
-          dieser Anwendung, und er wird nie wieder angezeigt.
+          Der Schlüssel bleibt auf diesem Gerät und ist nur für dein Benutzerkonto lesbar.
+          Er wird nie wieder angezeigt und geht an nichts ausser den Agenten.
         </p>
       </div>
     </div>
@@ -184,11 +184,16 @@ function Seitenleiste({
 
   return (
     <aside className="seite">
-      <div className="marke">
-        <span className="marke-zeichen">
+      {/* Ohne Systemleiste (titleBarStyle "Overlay") gibt es nichts, woran man
+          das Fenster fassen könnte. Diese Zeile und die Kopfzeile sind der
+          Ersatz dafür. */}
+      <div className="marke" data-tauri-drag-region>
+        <span className="marke-zeichen" data-tauri-drag-region>
           <Terminal size={13} />
         </span>
-        <span className="marke-name">jichi</span>
+        <span className="marke-name" data-tauri-drag-region>
+          jichi
+        </span>
       </div>
 
       <div className="seite-inhalt">
@@ -630,13 +635,13 @@ function App() {
       <Seitenleiste snap={snap} oeffneEinstellungen={() => setEinstellungen(true)} />
 
       <main className="haupt">
-        <header className="kopf">
-          <div className="zustand">
-            <span className={`punkt ${punkt}`} />
+        <header className="kopf" data-tauri-drag-region>
+          <div className="zustand" data-tauri-drag-region>
+            <span className={`punkt ${punkt}`} data-tauri-drag-region />
             {snap.error ?? statusLabel(snap.status)}
           </div>
 
-          <div className="kopf-rechts">
+          <div className="kopf-rechts" data-tauri-drag-region>
             {snap.canCancel && (
               <button className="knopf-klein abbrechen" onClick={() => void agent.cancel()}>
                 <X size={13} />
@@ -686,6 +691,9 @@ function App() {
     </div>
   );
 }
+
+// Nur auf macOS schwebt die Ampel über dem Inhalt und braucht Platz.
+if (/Mac/i.test(navigator.userAgent)) document.documentElement.classList.add("mac");
 
 const wurzel = document.getElementById("root");
 if (wurzel) createRoot(wurzel).render(<App />);

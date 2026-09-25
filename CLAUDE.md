@@ -35,8 +35,9 @@ wieder in einer Hand, auf `main`. Der Zweig `design/jlu` ist zusammengeführt.
 4. Kein Regelwerk, das sich an die innere Struktur einer fremden Komponente
    klammert (`> div[id] > div:first-child`). Das hält bis zu deren nächster
    Fassung.
-5. Der API-Schlüssel wird nie entgegengenommen und nie gespeichert — die
-   Einstellungen kennen nur den **Pfad** zu seiner Datei.
+5. Der API-Schlüssel geht ausschliesslich durch `agent.setup(key)` und
+   verschwindet damit in der geschützten Ablage. Kein zweites Eingabefeld,
+   keine Anzeige, keine Kopie.
 
 ## Vor jeder Übergabe
 

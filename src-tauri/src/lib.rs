@@ -419,128 +419,107 @@ fn resolve_env(specs: &[EnvSpec]) -> Result<BTreeMap<String, String>, String> {
 }
 
 
-// ── Schlüsselbund ────────────────────────────────────────────────────────────
+// ── Geheimnisse ──────────────────────────────────────────────────────────────
 //
-// Der API-Schlüssel wird von dieser Anwendung nicht verwaltet, sondern beim
-// Betriebssystem hinterlegt — Keychain unter macOS, Credential Manager unter
-// Windows, Secret Service unter Linux. Das hat eine Eigenschaft, die mehr wert
-// ist als jede Verschlüsselung, die wir selbst bauen könnten: **es gibt keinen
-// Befehl, der den Schlüssel an die Oberfläche zurückgibt.** Er wird genau
-// einmal geschrieben und danach nur noch hier gelesen, im Moment des Starts,
-// um ihn als Umgebungsvariable an den Agenten zu reichen. Was das Fenster nie
-// sieht, kann es nicht verlieren.
+// Der API-Schlüssel liegt in einer eigenen Datei, die nur dem Benutzer gehört
+// (0600), im Datenverzeichnis dieser Anwendung.
+//
+// Vorher war es der Schlüsselbund des Betriebssystems. Das klingt besser und
+// war hier falsch: macOS bindet die Erlaubnis für einen Eintrag an die Signatur
+// des fragenden Programms, und eine Entwicklungsfassung bekommt bei jedem Bauen
+// eine neue. „Immer erlauben“ kann deshalb gar nicht halten — das System sieht
+// jedes Mal ein fremdes Programm und fragt erneut nach dem Anmeldepasswort.
+// Ein Schutz, den der Benutzer zehnmal am Tag wegklickt, schützt nichts mehr;
+// er erzieht nur dazu, Passwortdialoge blind zu bestätigen.
+//
+// Was die Datei leistet: andere Benutzerkonten auf demselben Rechner kommen
+// nicht heran, und ein versehentliches Mitkopieren beim Teilen eines Ordners
+// fällt auf. Was sie nicht leistet: Schutz vor anderen Programmen, die als
+// derselbe Benutzer laufen. Das ist derselbe Handel, den `~/.ssh/id_rsa` und
+// `~/.aws/credentials` eingehen — und den der Agent selbst schon eingeht, denn
+// er bekommt den Schlüssel als Umgebungsvariable.
+//
+// Unverändert bleibt das Wichtigste: es gibt **keinen Befehl, der den Wert
+// zurückgibt**. Geschrieben wird er einmal, gelesen nur hier, beim Start des
+// Kindprozesses.
 
 const SECRET_SERVICE: &str = "de.uni-giessen.hrz.jichi-desktop";
 
-fn secret_entry(account: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(SECRET_SERVICE, account)
-        .map_err(|e| format!("Schlüsselbund nicht erreichbar: {e}"))
-}
-
-/// Eine Notiz darüber, *dass* ein Schlüssel hinterlegt wurde — nie welcher.
-///
-/// Der Grund ist das Verhalten von macOS: der Schlüsselbund bindet seine
-/// Erlaubnis an die Signatur des fragenden Programms, und eine
-/// Entwicklungsfassung bekommt bei jedem Bauen eine neue. Jeder Zugriff kann
-/// also einen Dialog auslösen. Die Frage „ist überhaupt ein Schlüssel da?“
-/// stellt diese Anwendung beim Start mehrfach — für den Startvorschlag, für die
-/// Bereitschaft, für die Anzeige. Würde sie dafür jedes Mal den Schlüsselbund
-/// öffnen, fragte das System mehrfach nach dem Passwort, **bevor** überhaupt
-/// etwas passiert ist.
-///
-/// Darum steht die Antwort auf diese Frage in einer eigenen, harmlosen Datei.
-/// Sie enthält kein Geheimnis, nur einen Namen und ein Ja. Der Schlüsselbund
-/// wird ab jetzt an genau einer Stelle geöffnet: wenn der Agent wirklich
-/// startet und den Wert braucht.
-fn notes_file() -> Option<PathBuf> {
-    Some(app_dir()?.join("schluessel.json"))
-}
-
-fn read_notes() -> BTreeMap<String, bool> {
-    notes_file()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
-}
-
-fn note_secret(account: &str, present: bool) {
-    let mut notes = read_notes();
-    if present {
-        notes.insert(account.to_string(), true);
-    } else {
-        notes.remove(account);
+fn secret_path(account: &str) -> Option<PathBuf> {
+    // Kein Pfadtrenner aus dem Namen, sonst schriebe ein Aufruf irgendwohin.
+    if account.is_empty() || account.contains(['/', '\\', '.']) {
+        return None;
     }
-    if let (Some(path), Ok(text)) = (notes_file(), serde_json::to_string_pretty(&notes)) {
-        let _ = std::fs::write(path, text);
+    let dir = app_dir()?.join("secrets");
+    std::fs::create_dir_all(&dir).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
+    Some(dir.join(account))
 }
 
-/// Ohne den Schlüsselbund zu öffnen. Kann irren, wenn jemand den Eintrag von
-/// Hand aus der Schlüsselbundverwaltung löscht — dann scheitert der nächste
-/// Start mit einer klaren Meldung, und das ist der richtige Ort dafür.
-///
-/// Gibt es die Notizdatei noch gar nicht, wurde der Schlüssel von einer älteren
-/// Fassung hinterlegt, die ohne Notizen auskam. Dann — und nur dann — wird der
-/// Schlüsselbund ein einziges Mal gefragt und das Ergebnis vermerkt. Ohne diesen
-/// Übergang stünde der Benutzer vor einem Einrichtungsbildschirm, der einen
-/// Schlüssel verlangt, den er längst hinterlegt hat.
-fn secret_noted(account: &str) -> bool {
-    if let Some(vermerkt) = read_notes().get(account).copied() {
-        return vermerkt;
+/// Alte Orte, an denen ein Schlüssel schon liegen kann — die in der README
+/// genannte Datei und die der JLU. Wird einer gefunden, übernimmt ihn die
+/// Anwendung beim ersten Zugriff, damit niemand ihn erneut abtippt.
+fn legacy_key_files() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(h) = home() {
+        v.push(h.join(".config/jichi/apikey.txt"));
+        v.push(h.join(".config/jlu/apikey.txt"));
+        v.push(h.join(".jichi-api-key"));
     }
-    if notes_file().map(|p| p.exists()).unwrap_or(false) {
-        return false; // Notizen gibt es, dieses Konto steht nicht darin.
-    }
-    // Einmalig, beim ersten Start nach der Umstellung.
-    let vorhanden = secret_read(account).is_some();
-    if !vorhanden {
-        note_secret(account, false);
-        // Auch ein "nichts da" muss vermerkt werden, sonst fragt der nächste
-        // Start wieder -- und das ist genau die Schleife, die weg soll.
-        if let (Some(path), Ok(text)) =
-            (notes_file(), serde_json::to_string_pretty(&read_notes()))
-        {
-            let _ = std::fs::write(path, text);
-        }
-    }
-    vorhanden
+    v
 }
 
-/// Den Wert holen. Nur innerhalb dieses Moduls, bewusst **kein**
-/// `#[tauri::command]` — und höchstens einmal je Programmlauf, damit aus einem
-/// Dialog nicht vier werden.
-fn secret_cache() -> Option<&'static Mutex<BTreeMap<String, String>>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
-    Some(CACHE.get_or_init(|| Mutex::new(BTreeMap::new())))
+fn write_secret(path: &Path, value: &str) -> Result<(), String> {
+    std::fs::write(path, value)
+        .map_err(|e| format!("Der Schlüssel konnte nicht abgelegt werden: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Die Rechte liessen sich nicht setzen: {e}"))?;
+    }
+    Ok(())
 }
 
+/// Nur innerhalb dieses Moduls. Bewusst **kein** `#[tauri::command]`.
 fn secret_read(account: &str) -> Option<String> {
-    let cache = secret_cache()?;
+    let path = secret_path(account)?;
 
-    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(account).cloned()) {
-        return Some(hit);
-    }
-    let value = secret_entry(account)
-        .ok()?
-        .get_password()
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())?;
-
-    if let Ok(mut c) = cache.lock() {
-        c.insert(account.to_string(), value.clone());
-    }
-    note_secret(account, true);
-    Some(value)
-}
-
-/// Den gemerkten Wert vergessen (nach dem Entfernen).
-fn secret_uncache(account: &str) {
-    if let Some(cache) = secret_cache() {
-        if let Ok(mut c) = cache.lock() {
-            c.remove(account);
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let value = text.trim().to_string();
+        if !value.is_empty() {
+            return Some(value);
         }
     }
+
+    // Übernahme aus einer vorhandenen Schlüsseldatei.
+    if account == KEY_ENV {
+        for alt in legacy_key_files() {
+            if let Ok(text) = std::fs::read_to_string(&alt) {
+                let value = text.trim().to_string();
+                if !value.is_empty() {
+                    let _ = write_secret(&path, &value);
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Ohne die Datei zu lesen — für die Frage „ist überhaupt einer da?“.
+fn secret_noted(account: &str) -> bool {
+    let vorhanden = secret_path(account)
+        .map(|p| p.metadata().map(|m| m.len() > 0).unwrap_or(false))
+        .unwrap_or(false);
+    if vorhanden {
+        return true;
+    }
+    account == KEY_ENV && legacy_key_files().iter().any(|p| p.is_file())
 }
 
 #[tauri::command]
@@ -549,24 +528,10 @@ fn secret_store(account: String, value: String) -> Result<(), String> {
     if value.is_empty() {
         return Err("Der Schlüssel ist leer.".into());
     }
-    secret_entry(&account)?
-        .set_password(value)
-        // Die Meldung nennt den Fehler, niemals den Wert.
-        .map_err(|e| format!("Der Schlüssel konnte nicht abgelegt werden: {e}"))?;
-
-    // Gleich merken: so braucht der erste Start danach den Schlüsselbund nicht
-    // noch einmal, nur um zu wissen, dass es ihn gibt.
-    if let Some(cache) = secret_cache() {
-        if let Ok(mut c) = cache.lock() {
-            c.insert(account.clone(), value.to_string());
-        }
-    }
-    note_secret(&account, true);
-    Ok(())
+    let path = secret_path(&account).ok_or("ungültiger Name")?;
+    write_secret(&path, value)
 }
 
-/// Beantwortet aus der Notiz, nicht aus dem Schlüsselbund — sonst kostet die
-/// Frage einen Dialog.
 #[tauri::command]
 fn secret_present(account: String) -> bool {
     secret_noted(&account)
@@ -574,12 +539,11 @@ fn secret_present(account: String) -> bool {
 
 #[tauri::command]
 fn secret_forget(account: String) -> Result<(), String> {
-    secret_uncache(&account);
-    note_secret(&account, false);
-    match secret_entry(&account)?.delete_credential() {
+    let path = secret_path(&account).ok_or("ungültiger Name")?;
+    match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         // Nicht vorhanden ist kein Fehler: das Ziel ist erreicht.
-        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("Der Schlüssel konnte nicht entfernt werden: {e}")),
     }
 }
@@ -1429,47 +1393,48 @@ mod tests {
         }
     }
 
-    /// Der Schlüsselbund des Betriebssystems, hin und zurück.
-    ///
-    /// Übersprungen, weil er je nach Rechner nachfragt oder fehlt (ein
-    /// Linux-Server ohne Secret Service hat keinen):
-    ///
-    ///     cargo test -- --ignored --nocapture
     #[test]
-    #[ignore = "greift auf den Schlüsselbund des Systems zu"]
-    fn schluesselbund_haelt_und_gibt_zurueck() {
+    fn schluessel_wird_abgelegt_gelesen_und_entfernt() {
         eigene_ablage();
-        let konto = "jichi-desktop-test-konto";
-        let wert = "geheim-fuer-den-test-12345";
+        let konto = "TEST_KEY";
+        secret_forget(konto.into()).unwrap();
+        assert!(!secret_noted(konto), "vorher ist nichts da");
 
-        secret_store(konto.into(), wert.into()).expect("ablegen");
-        assert!(secret_present(konto.into()), "gerade abgelegt, also vorhanden");
+        secret_store(konto.into(), "  geheim-12345\n".into()).unwrap();
+        assert!(secret_noted(konto));
 
-        // Über den Weg, den auch der Start nimmt.
+        // Über den Weg, den auch der Start nimmt -- und getrimmt.
         let env = resolve_env(&[EnvSpec {
             name: "JICHI_API_KEY".into(),
             secret: Some(konto.into()),
             value: None,
             file: None,
         }])
-        .expect("auflösen");
-        assert_eq!(env.get("JICHI_API_KEY").map(String::as_str), Some(wert));
+        .unwrap();
+        assert_eq!(env.get("JICHI_API_KEY").map(String::as_str), Some("geheim-12345"));
 
-        secret_forget(konto.into()).expect("entfernen");
-        assert!(!secret_present(konto.into()), "entfernt, also weg");
-        // Zweimal entfernen ist kein Fehler.
-        secret_forget(konto.into()).expect("nochmal entfernen");
+        // Nur der Benutzer darf lesen. Das ist der ganze Schutz dieser Ablage,
+        // also wird er geprüft und nicht angenommen.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = secret_path(konto).unwrap().metadata().unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "Rechte sind {:o}", mode & 0o777);
+        }
 
-        // Und ohne Eintrag muss der Start mit einer klaren Meldung scheitern,
-        // nicht mit einer leeren Variablen.
-        let err = resolve_env(&[EnvSpec {
-            name: "JICHI_API_KEY".into(),
-            secret: Some(konto.into()),
-            value: None,
-            file: None,
-        }])
-        .unwrap_err();
-        assert!(err.contains("Schlüsselbund"), "{err}");
+        secret_forget(konto.into()).unwrap();
+        assert!(!secret_noted(konto));
+        secret_forget(konto.into()).unwrap(); // zweimal ist kein Fehler
+        assert!(secret_store(konto.into(), "   ".into()).is_err(), "leer wird abgelehnt");
+    }
+
+    #[test]
+    fn ein_name_mit_pfadtrenner_wird_abgelehnt() {
+        eigene_ablage();
+        // Sonst schriebe ein Aufruf irgendwohin ins Dateisystem.
+        for boese in ["../../etc/passwd", "a/b", "..", ""] {
+            assert!(secret_path(boese).is_none(), "{boese} wurde angenommen");
+        }
     }
 
     /// `doctor --output json` gegen den echten Agenten.
@@ -1614,18 +1579,6 @@ mod tests {
             gebraucht < SCAN_MAX_TIME + std::time::Duration::from_secs(2),
             "die Suche lief {gebraucht:?}, erlaubt sind {SCAN_MAX_TIME:?}"
         );
-    }
-
-    #[test]
-    fn die_notiz_beantwortet_ohne_schluesselbund() {
-        eigene_ablage();
-        let konto = "jichi-desktop-test-notiz";
-        note_secret(konto, true);
-        assert!(secret_noted(konto));
-        note_secret(konto, false);
-        assert!(!secret_noted(konto));
-        // Und ein nie gesehenes Konto ist schlicht nicht vermerkt.
-        assert!(!secret_noted("jichi-desktop-test-nie-dagewesen"));
     }
 
     #[test]

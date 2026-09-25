@@ -66,6 +66,11 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
   display: flex; align-items: center; gap: 8px;
   height: var(--kopf); padding: 0 10px 0 12px; flex: none;
 }
+/* Platz für die Fensterampel, die auf macOS über dem Inhalt schwebt. */
+.mac .marke { padding-left: 78px; }
+
+/* Ziehflächen: der Zeiger soll nicht wie über Text aussehen. */
+[data-tauri-drag-region] { cursor: default; user-select: none; }
 .marke-zeichen {
   width: 20px; height: 20px; flex: none; display: grid; place-items: center;
   border-radius: 5px; background: var(--color-primary); color: var(--color-on-primary);

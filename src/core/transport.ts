@@ -14,10 +14,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 /**
  * Eine Umgebungsvariable für den Agenten.
  *
- * Für Geheimnisse ist `secret` gedacht: der Name eines Kontos im Schlüsselbund
- * des Betriebssystems. Der Wert wird ausschließlich auf der Rust-Seite gelesen,
- * im Moment des Starts — es gibt keinen Befehl, der ihn hierher zurückgibt.
- * `file` und `value` bleiben für Rechner ohne Schlüsselbund.
+ * Für Geheimnisse ist `secret` gedacht: der Name eines Eintrags in der
+ * geschützten Ablage der Anwendung. Der Wert wird ausschließlich auf der
+ * Rust-Seite gelesen, im Moment des Starts — es gibt keinen Befehl, der ihn
+ * hierher zurückgibt. `file` und `value` bleiben für Sonderfälle.
  */
 export interface EnvSpec {
   name: string;

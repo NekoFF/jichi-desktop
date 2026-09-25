@@ -129,10 +129,10 @@ export class Agent {
    * Den ersten Start abschließen: Schlüssel hinterlegen, bei Bedarf die
    * Konfiguration des Agenten anlegen, und ihn sich selbst prüfen lassen.
    *
-   * Der Schlüssel geht in den Schlüsselbund des Betriebssystems und wird von
-   * dort **nie wieder ausgelesen** — außer von der Rust-Seite im Moment des
-   * Starts. Er steht in keiner Einstellung, in keinem Protokoll und in keinem
-   * Zustand dieser Anwendung.
+   * Der Schlüssel geht in die geschützte Ablage der Anwendung und wird von dort
+   * **nie wieder ausgelesen** — außer von der Rust-Seite im Moment des Starts.
+   * Er steht in keiner Einstellung, in keinem Protokoll und in keinem Zustand
+   * dieser Anwendung.
    *
    * Geprüft wird nicht von uns, sondern von `jichi doctor`: derselbe Weg, den
    * auch ein echter Zug nimmt. Eine zweite, hier nachgebaute Prüfung könnte
@@ -177,7 +177,7 @@ export class Agent {
     return health;
   }
 
-  /** Den Schlüssel aus dem Schlüsselbund entfernen. */
+  /** Den Schlüssel aus der Ablage entfernen. */
   async forgetKey(): Promise<void> {
     const account = this.#snapshot.readiness?.keyEnv ?? "JICHI_API_KEY";
     await this.#transport.secretForget(account);

@@ -85,9 +85,10 @@ interface DoctorReport {
 ```
 
 `agent.setup(apiKey)` ist der **einzige** Weg, einen Schlüssel entgegenzunehmen.
-Er legt ihn im Schlüsselbund des Betriebssystems ab, legt bei Bedarf die
-Konfiguration des Agenten an und lässt den Agenten sich selbst prüfen
-(`jichi doctor`). Der Rückgabewert ist dieser Bericht.
+Er legt ihn in der geschützten Ablage der Anwendung ab (eine Datei mit 0600 im
+Datenverzeichnis), legt bei Bedarf die Konfiguration des Agenten an und lässt
+den Agenten sich selbst prüfen (`jichi doctor`). Der Rückgabewert ist dieser
+Bericht.
 
 **Der Schlüssel darf nirgends sonst hin.** Nicht in `localStorage`, nicht in
 den Zustand, nicht in eine Datei, nicht in ein Protokoll. Es gibt keinen Befehl,
@@ -207,7 +208,7 @@ Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
 - **Keine festen Farben.** Regel des Design Systems: semantische Token statt
   `bg-blue-500` oder `style={{ color: "#123456" }}`.
 - **Keine eigenen Grundbausteine.** Erst im Design System suchen.
-- **Der Schlüssel bleibt im Schlüsselbund.** `agent.setup(key)` ist der einzige
+- **Der Schlüssel bleibt in der Ablage.** `agent.setup(key)` ist der einzige
   Weg hinein; heraus führt keiner. Kein Feld, das ihn anzeigt, kein Wert im
   Zustand, keine Kopie in `localStorage`.
 

@@ -16,10 +16,13 @@
         "title": "jichi",
         "width": 1434,
         "height": 778,
-        "minWidth": 1024,
-        "minHeight": 620,
+        "minWidth": 860,
+        "minHeight": 560,
         "titleBarStyle": "Overlay",
-        "trafficLightPosition": { "x": 22, "y": 22 },
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        },
         "hiddenTitle": true
       }
     ],
