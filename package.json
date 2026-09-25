@@ -15,7 +15,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
-    "@ki4jlu/design-system": "github:KI4JLU/JLU-Design-System#v0.42.0",
+    "@ki4jlu/design-system": "github:KI4JLU/JLU-Design-System#v0.43.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-opener": "^2",

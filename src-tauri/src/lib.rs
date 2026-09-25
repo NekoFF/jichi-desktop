@@ -306,6 +306,23 @@ fn resolve_env(specs: &[EnvSpec]) -> Result<BTreeMap<String, String>, String> {
         if spec.name.trim().is_empty() {
             continue;
         }
+        // Eine neu gebaute Dev-App muss sich bei macOS sonst für jedes Lesen
+        // erneut vor dem Schlüsselbund ausweisen. Die bereits vorhandene,
+        // benutzereigene Schlüsseldatei vermeidet das nur im Debug-Build.
+        #[cfg(all(target_os = "macos", debug_assertions))]
+        if spec.name == KEY_ENV && spec.secret.is_some() {
+            if let Some(path) = key_file_candidates().into_iter().find(|p| p.is_file()) {
+                let raw = std::fs::read_to_string(&path).map_err(|e| {
+                    format!("{}: {} ist nicht lesbar ({e})", spec.name, path.display())
+                })?;
+                let value = raw.trim();
+                if value.is_empty() {
+                    return Err(format!("{}: {} ist leer", spec.name, path.display()));
+                }
+                out.insert(spec.name.clone(), value.to_string());
+                continue;
+            }
+        }
         let value = match (&spec.secret, &spec.value, &spec.file) {
             (Some(account), _, _) if !account.trim().is_empty() => {
                 secret_read(account.trim()).ok_or_else(|| {
@@ -374,7 +391,22 @@ fn secret_store(account: String, value: String) -> Result<(), String> {
 
 #[tauri::command]
 fn secret_present(account: String) -> bool {
-    secret_read(&account).is_some()
+    // Die Bereitschaftsprüfung darf auf macOS keinen Passwortdialog öffnen.
+    #[cfg(target_os = "macos")]
+    {
+        use security_framework::item::{ItemClass, ItemSearchOptions};
+        let mut search = ItemSearchOptions::new();
+        search.class(ItemClass::generic_password())
+            .service(SECRET_SERVICE)
+            .account(&account)
+            .load_attributes(true)
+            .skip_authenticated_items(true);
+        return search.search().map(|items| !items.is_empty()).unwrap_or(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        secret_read(&account).is_some()
+    }
 }
 
 #[tauri::command]
@@ -642,14 +674,15 @@ struct Readiness {
 
 #[tauri::command]
 fn readiness() -> Readiness {
-    let launch = default_launch();
+    let key_stored = secret_present(KEY_ENV.into());
+    let launch = default_launch_for(key_stored);
     let agent = launch.resolved.clone();
     let version = agent.as_deref().and_then(|_| probe(launch.program.clone()).ok());
     let config = read_config();
-    let key_stored = secret_read(KEY_ENV).is_some();
+    let key_file_available = key_file_candidates().into_iter().any(|p| p.is_file());
 
     Readiness {
-        needs_setup: agent.is_none() || !config.exists || config.models.is_empty() || !key_stored,
+        needs_setup: agent.is_none() || !config.exists || config.models.is_empty() || !(key_stored || key_file_available),
         agent,
         version,
         config,
@@ -702,6 +735,10 @@ fn key_file_candidates() -> Vec<PathBuf> {
 /// geraten wird hier nur der Normalfall.
 #[tauri::command]
 fn default_launch() -> Launch {
+    default_launch_for(secret_present(KEY_ENV.into()))
+}
+
+fn default_launch_for(key_stored: bool) -> Launch {
     let windows = cfg!(target_os = "windows");
 
     let (program, args) = if windows {
@@ -714,7 +751,7 @@ fn default_launch() -> Launch {
 
     // Der Schlüsselbund gewinnt. Eine Datei bleibt der zweite Weg — für einen
     // Rechner ohne Schlüsselbund, und für den, der seine Datei schon hat.
-    let env: Vec<EnvHint> = if secret_read(KEY_ENV).is_some() {
+    let env: Vec<EnvHint> = if key_stored {
         vec![EnvHint { name: KEY_ENV.into(), secret: Some(KEY_ENV.into()), file: None }]
     } else {
         key_file_candidates()

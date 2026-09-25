@@ -1936,6 +1936,7 @@ name = "jichi-desktop"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",

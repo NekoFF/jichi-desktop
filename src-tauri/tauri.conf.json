@@ -14,11 +14,13 @@
     "windows": [
       {
         "title": "jichi",
-        "width": 1100,
-        "height": 760,
+        "width": 1434,
+        "height": 778,
         "minWidth": 1024,
         "minHeight": 620,
-        "titleBarStyle": "Visible"
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 22, "y": 22 },
+        "hiddenTitle": true
       }
     ],
     "security": {
