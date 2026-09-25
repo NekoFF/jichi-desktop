@@ -4,8 +4,6 @@
 //! Geschrieben wird wie überall: nur reines JSON (mit Kommentaren wird nicht
 //! angefasst), mit Sicherung, atomar, 0600.
 
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -152,10 +150,6 @@ pub fn entferne_server(json: &mut serde_json::Value, name: &str) -> Result<(), S
         }
     }
     if weg { Ok(()) } else { Err(format!("Kein Server „{name}“.")) }
-}
-
-pub fn exists(p: &Path) -> bool {
-    p.exists()
 }
 
 #[cfg(test)]
