@@ -268,11 +268,11 @@ main.haupt {
 /* Vorschau: Befehl, Dateien, Argumente */
 
 .vorschau-befehl pre, .vorschau-unlesbar pre {
-  margin: 0; padding: 8px 11px; border-radius: 8px; background: var(--color-code-surface);
-  font: 12px/1.55 var(--font-mono); color: var(--color-on-code-surface);
+  margin: 0; padding: 8px 11px; border-radius: 8px; background: var(--block-bg); border: 1px solid var(--block-rand);
+  font: 12px/1.55 var(--font-mono); color: var(--color-on-surface);
   white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow-y: auto;
 }
-.vorschau-befehl .prompt { color: var(--color-code-accent); user-select: none; }
+.vorschau-befehl .prompt { color: var(--color-primary); user-select: none; }
 .vorschau-warnung {
   display: flex; align-items: flex-start; gap: 6px; margin: 0 0 7px;
   font-size: 12px; line-height: 1.45; color: var(--color-error);
@@ -831,31 +831,36 @@ main.haupt {
 .md th { background: var(--color-surface-container); font-weight: 600; }
 .md input[type="checkbox"] { margin-right: 5px; }
 
-.md-code { border-radius: 9px; overflow: hidden; background: var(--color-code-surface); }
-.md-code, .terminal, .vorschau-befehl pre, .vorschau-unlesbar pre {
-  border: 1px solid color-mix(in srgb, var(--color-on-surface) 9%, transparent);
+/* Codeblöcke im Chat: hell im hellen, dunkel im dunklen Aussehen — eine
+   leichte Tönung der Fläche statt eines schwarzen Kastens. */
+:root {
+  --block-bg: color-mix(in srgb, var(--color-on-surface) 3.5%, var(--color-surface-container-lowest));
+  --block-rand: color-mix(in srgb, var(--color-on-surface) 9%, transparent);
 }
+.md-code { border-radius: 10px; overflow: hidden; background: var(--block-bg); border: 1px solid var(--block-rand); }
+.terminal { border: 1px solid color-mix(in srgb, var(--color-on-surface) 9%, transparent); }
 .md-code-kopf {
   display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 4px 12px;
-  font-size: 11px; color: color-mix(in srgb, var(--color-on-code-surface) 60%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-on-code-surface) 10%, transparent);
+  font-size: 11px; color: var(--color-on-surface-variant);
+  border-bottom: 1px solid var(--block-rand);
 }
 .md-code-kopf button {
   display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 5px;
   font-size: 11px; color: inherit;
 }
-.md-code-kopf button:hover { background: color-mix(in srgb, var(--color-on-code-surface) 10%, transparent); color: var(--color-on-code-surface); }
+.md-code-kopf button:hover { background: color-mix(in srgb, var(--color-on-surface) 7%, transparent); color: var(--color-on-surface); }
 .md-code pre { margin: 0; padding: 10px 12px; overflow-x: auto; }
-.md-code code { font: 12.5px/1.55 var(--font-mono); color: var(--color-on-code-surface); white-space: pre; }
+.md-code code { font: 12.5px/1.55 var(--font-mono); color: var(--color-on-surface); white-space: pre; }
 
-/* Syntax: gedämpfte Töne auf der dunklen Code-Fläche. */
-.hljs-comment, .hljs-quote { color: color-mix(in srgb, var(--color-on-code-surface) 50%, transparent); font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-meta { color: var(--p-blue-300); }
-.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute { color: var(--color-code-accent); }
-.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable.language_ { color: var(--p-red-300); }
-.hljs-title, .hljs-title.function_, .hljs-section { color: color-mix(in srgb, var(--p-blue-300) 55%, var(--color-code-accent)); }
-.hljs-type, .hljs-class .hljs-title, .hljs-params { color: color-mix(in srgb, var(--color-on-code-surface) 85%, var(--p-blue-300)); }
-.hljs-deletion { color: var(--p-red-300); }
+/* Syntax: dieselben Töne wie in der Dateiansicht — aus den Farben des
+   Aussehens, darum im Hellen wie im Dunklen lesbar. */
+.md-code .hljs-comment, .md-code .hljs-quote { color: var(--color-on-surface-variant); font-style: italic; }
+.md-code .hljs-keyword, .md-code .hljs-selector-tag, .md-code .hljs-built_in, .md-code .hljs-meta { color: var(--color-primary); }
+.md-code .hljs-string, .md-code .hljs-regexp, .md-code .hljs-addition { color: var(--color-success); }
+.md-code .hljs-number, .md-code .hljs-literal, .md-code .hljs-symbol, .md-code .hljs-variable.language_ { color: var(--color-tertiary, var(--color-error)); }
+.md-code .hljs-title, .md-code .hljs-title.function_, .md-code .hljs-section { color: color-mix(in srgb, var(--color-primary) 70%, var(--color-on-surface)); }
+.md-code .hljs-type, .md-code .hljs-attr, .md-code .hljs-attribute, .md-code .hljs-params { color: color-mix(in srgb, var(--color-warning) 80%, var(--color-on-surface)); }
+.md-code .hljs-deletion { color: var(--color-error); }
 
 /* Bilder in eigenen Nachrichten */
 .nachricht-bilder { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
@@ -1168,7 +1173,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 .md-pfad { cursor: pointer; color: var(--color-primary); text-decoration: underline dotted; text-underline-offset: 3px; }
 .md-pfad:hover { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
 .md-code-luecke { flex: 1; }
-.md-code-kopf .md-code-artefakt { color: var(--color-code-accent); font-weight: 500; }
+.md-code-kopf .md-code-artefakt { color: var(--color-primary); font-weight: 500; }
 .werkzeug-spruenge { display: flex; gap: 6px; flex-wrap: wrap; }
 .werkzeug-spruenge:empty { display: none; }
 
@@ -1218,9 +1223,19 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 
 /* ── Sprungleiste ───────────────────────────────────────────────────────── */
 
-.sprungleiste { position: absolute; top: 14px; left: 14px; z-index: 6; }
+/* Ruhig, solange niemand sie braucht: blass am rechten Rand des Verlaufs,
+   zum Seitenpanel hin — gespiegelt, die Balken wachsen nach links. Beim
+   Scrollen, über dem Verlauf oder unter der Maus tritt sie hervor. */
+.sprungleiste {
+  position: absolute; top: 16px; right: 14px; z-index: 6;
+  opacity: .38; transition: opacity .35s ease;
+}
+.verlauf-rahmen:hover .sprungleiste { opacity: .7; }
+.sprungleiste.scrollt, .sprungleiste.schwebt, .sprungleiste:focus-within, .verlauf-rahmen .sprungleiste:hover { opacity: 1; transition-duration: .12s; }
 .sprung-pixel {
-  position: relative; display: flex; flex-direction: column; padding: 8px 10px 8px 6px; border-radius: 10px;
+  position: relative; display: flex; flex-direction: column; align-items: flex-end;
+  /* feste Breite (längster Balken, ganz gewachsen): die Leiste wackelt nicht */
+  width: 76px; padding: 8px 6px 8px 10px; border-radius: 10px;
   cursor: pointer; outline: 0;
 }
 .sprung-pixel:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 45%, transparent); }
@@ -1228,7 +1243,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
    glätten die Sprünge zwischen zwei Mausbewegungen — so fließt die Welle. */
 .sprung-reihe {
   --g: 0;
-  display: flex; align-items: center; gap: calc(2px + 2px * var(--g));
+  display: flex; flex-direction: row-reverse; align-items: center; gap: calc(2px + 2px * var(--g));
   height: calc(3px + 6px * var(--g)); margin: calc(2.5px + 2px * var(--g)) 0;
   transition: height .16s cubic-bezier(.2,.8,.2,1), margin .16s cubic-bezier(.2,.8,.2,1), gap .16s ease;
 }
@@ -1248,8 +1263,8 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 .sprung-reihe.nah.aktiv .sprung-balken { background: var(--color-on-surface); }
 
 .sprung-etikett {
-  position: absolute; left: 44px; transform: translateY(calc(-50% + 8px)); z-index: 7; pointer-events: none;
-  display: flex; align-items: center; gap: 7px; max-width: 360px; padding: 5px 10px 5px 6px; border-radius: 9px;
+  position: absolute; right: calc(100% + 2px); transform: translateY(calc(-50% + 8px)); z-index: 7; pointer-events: none;
+  display: flex; align-items: center; gap: 7px; max-width: 360px; padding: 5px 6px 5px 10px; border-radius: 9px;
   background: color-mix(in srgb, var(--color-surface-container-lowest) 96%, transparent); backdrop-filter: blur(14px);
   border: 1px solid color-mix(in srgb, var(--color-outline-variant) 80%, transparent);
   box-shadow: 0 10px 28px -14px color-mix(in srgb, var(--color-on-surface) 40%, transparent);
@@ -1257,7 +1272,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
   transition: top .16s cubic-bezier(.2,.8,.2,1);
   animation: etikett-auf .14s ease-out;
 }
-@keyframes etikett-auf { from { opacity: 0; transform: translate(-4px, calc(-50% + 8px)); } }
+@keyframes etikett-auf { from { opacity: 0; transform: translate(4px, calc(-50% + 8px)); } }
 .sprung-etikett-nr {
   flex: none; min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 3px;
   font: 600 10px var(--font-mono); background: color-mix(in srgb, var(--color-on-surface) 7%, transparent); color: var(--color-on-surface-variant);
@@ -1268,11 +1283,11 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
   .sprung-reihe, .sprung-quadrat, .sprung-balken, .sprung-etikett { transition: none; animation: none; }
 }
 .sprung-karte {
-  position: absolute; top: 0; left: calc(100% + 6px); width: 320px; max-height: min(460px, 70vh); overflow-y: auto;
+  position: absolute; top: 0; right: calc(100% + 6px); width: 320px; max-height: min(460px, 70vh); overflow-y: auto;
   padding: 6px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--color-outline-variant) 80%, transparent);
   background: color-mix(in srgb, var(--color-surface-container-lowest) 96%, transparent); backdrop-filter: blur(16px);
   box-shadow: 0 18px 44px -18px color-mix(in srgb, var(--color-on-surface) 38%, transparent);
-  animation: menue-auf .14s ease-out; transform-origin: top left;
+  animation: menue-auf .14s ease-out; transform-origin: top right;
 }
 .sprung-kopf { display: flex; justify-content: space-between; padding: 6px 8px 6px; font-size: 11px; color: var(--color-on-surface-variant); }
 .sprung-taste { font-family: var(--font-mono); opacity: .8; }

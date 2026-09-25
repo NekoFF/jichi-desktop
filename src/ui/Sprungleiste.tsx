@@ -1,5 +1,5 @@
 /**
- * Die Sprungleiste: der Chat als Karte, links oben am Verlauf.
+ * Die Sprungleiste: der Chat als Karte, rechts oben am Verlauf, zum Seitenpanel hin.
  *
  * Jede eigene Frage ist eine Zeile aus Pixeln — ein Quadrat und ein Balken,
  * wie im Zeichen von jichi. Die Länge des Balkens zeigt, wie umfangreich die
@@ -56,6 +56,19 @@ export const Sprungleiste = memo(function Sprungleiste({
   aktiv: string | null;
   springen: (id: string) => void;
 }) {
+  // Während gescrollt wird (die aktive Frage wechselt), kurz deutlich zeigen.
+  const [scrollt, setScrollt] = useState(false);
+  const ruhe = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const erst = useRef(true);
+  useEffect(() => {
+    if (erst.current) {
+      erst.current = false;
+      return;
+    }
+    setScrollt(true);
+    if (ruhe.current) clearTimeout(ruhe.current);
+    ruhe.current = setTimeout(() => setScrollt(false), 1100);
+  }, [aktiv]);
   const [maus, setMaus] = useState<number | null>(null);
   const [liste, setListe] = useState(false);
   const leiste = useRef<HTMLDivElement>(null);
@@ -120,7 +133,7 @@ export const Sprungleiste = memo(function Sprungleiste({
   const ziel = naechste >= 0 ? sichtbar[naechste] : null;
 
   return (
-    <nav className={`sprungleiste${maus !== null ? " schwebt" : ""}`} aria-label="Fragen in diesem Chat">
+    <nav className={`sprungleiste${maus !== null ? " schwebt" : ""}${scrollt ? " scrollt" : ""}`} aria-label="Fragen in diesem Chat">
       <div
         ref={leiste}
         className="sprung-pixel"
