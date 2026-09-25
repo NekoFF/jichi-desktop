@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
 } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -69,6 +70,20 @@ const useAgent = (): Snapshot =>
 
 // ── Einrichtung ──────────────────────────────────────────────────────────────
 
+const setupPixelPattern = [
+  ".......x..........",
+  ".....xxx.....x....",
+  "...xx.xxxx..xxx...",
+  "..xxx..xxxx.xxxx..",
+  "...xxxx..xxxxxx...",
+  ".....xxx..xxxx....",
+  ".......x...xx.....",
+];
+
+const setupPixels = setupPixelPattern.flatMap((row, y) =>
+  [...row].flatMap((cell, x) => cell === "x" ? [{ x, y }] : []),
+);
+
 function Einrichtung({
   prefs,
   setPrefs,
@@ -104,48 +119,58 @@ function Einrichtung({
   }
 
   return (
-    <div className="ueber">
-      <div className="tafel einrichtung">
-        <div className="marke-zeichen">
-          <Terminal size={17} />
+    <div className="ueber setup-screen">
+      <div className="setup-stage">
+        <div className="setup-art" aria-hidden="true">
+          <div className="setup-pixels">
+            {setupPixels.map(({ x, y }, index) => (
+              <span
+                key={`${x}-${y}`}
+                style={{ gridColumn: x + 1, gridRow: y + 1, "--pixel-step": index % 11 } as CSSProperties}
+              />
+            ))}
+          </div>
         </div>
-        <h1>jichi einrichten</h1>
-        <p>Gib deinen API-Schlüssel ein, um Chats zu starten.</p>
+        <section className="setup-card" aria-labelledby="setup-title">
+          <h1 id="setup-title">jichi einrichten</h1>
+          <p className="setup-intro">Verbinde deinen Zugang, um mit jichi zu starten.</p>
 
-        <label className="feld">
-          <span>Wie soll jichi dich nennen?</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Dein Name"
-            autoComplete="off"
-          />
-        </label>
+          <label className="feld">
+            <span>Wie soll jichi dich nennen?</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Dein Name"
+              autoComplete="off"
+            />
+          </label>
 
-        <label className="feld">
-          <span>API-Schlüssel</span>
-          <input
-            type="password"
-            autoFocus
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && void verbinden()}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
+          <label className="feld">
+            <span>API-Schlüssel</span>
+            <input
+              type="password"
+              autoFocus
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void verbinden()}
+              placeholder="Schlüssel eingeben"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
 
-        <button className="knopf haupt" disabled={laeuft} onClick={() => void verbinden()}>
-          {laeuft ? "Wird geprüft …" : "Verbinden"}
-        </button>
+          <button className="knopf haupt" disabled={laeuft} onClick={() => void verbinden()}>
+            {laeuft ? "Wird geprüft …" : "Verbinden"}
+          </button>
 
-        {meldung && <p className="fussnote">{meldung}</p>}
-        <Bericht bericht={bericht} />
+          {meldung && <p className="setup-message" role="status">{meldung}</p>}
+          <Bericht bericht={bericht} />
 
-        <p className="fussnote">
-          Der Schlüssel bleibt auf diesem Gerät und ist nur für dein Benutzerkonto lesbar.
-          Er wird nie wieder angezeigt und geht an nichts ausser den Agenten.
-        </p>
+          <p className="setup-sicherheit">
+            Dein Schlüssel wird auf diesem Gerät gespeichert und ist nur für dein
+            Benutzerkonto lesbar. jichi verwendet ihn für die Verbindung zum Modellserver.
+          </p>
+        </section>
       </div>
     </div>
   );
