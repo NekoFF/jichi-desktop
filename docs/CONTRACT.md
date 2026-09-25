@@ -145,7 +145,7 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.disconnect()` | Prozess beenden. |
 | `agent.setup(apiKey)` | Ersten Start abschließen. Liefert den `DoctorReport`. |
 | `agent.checkHealth()` | Nur prüfen, nichts ändern (für die Diagnose). |
-| `agent.forgetKey()` | Schlüssel aus dem Schlüsselbund entfernen. |
+| `agent.forgetKey()` | Schlüssel entfernen und zum Einrichtungsbildschirm zurückkehren; alte Schlüsseldateien werden danach nicht automatisch erneut übernommen. |
 | `agent.refreshReadiness()` | `readiness` neu ermitteln. |
 | `agent.pickWorkspace()` | Ordnerauswahl des Systems, dann dort neue Sitzung. |
 | `agent.openWorkspace(path)` | Dasselbe mit bekanntem Pfad. |

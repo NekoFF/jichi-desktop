@@ -38,6 +38,7 @@ class FakeAgent implements Transport {
 
   // Zustand des Rechners, den der Test stellt.
   readonly schluesselbund = new Map<string, string>();
+  forgetKeepsKey = false;
   konfiguriert = true;
   ordner: string | null = "/tmp/projekt";
   readonly doctorAufrufe: Array<{ program: string; env: EnvSpec[] }> = [];
@@ -147,7 +148,7 @@ class FakeAgent implements Transport {
   }
 
   async secretForget(account: string) {
-    this.schluesselbund.delete(account);
+    if (!this.forgetKeepsKey) this.schluesselbund.delete(account);
   }
 
   async pickDirectory() {
@@ -269,6 +270,19 @@ check(
 
 await neuling.forgetKey();
 check("ohne Schlüssel verlangt die Anwendung wieder den ersten Start", neuling.getSnapshot().needsSetup);
+
+const alterSchluessel = new FakeAgent();
+alterSchluessel.schluesselbund.set("JICHI_API_KEY", "alter-schluessel");
+alterSchluessel.forgetKeepsKey = true;
+const wiederDa = new Agent(alterSchluessel);
+await wiederDa.init();
+let entfernenMeldetFehler = false;
+try {
+  await wiederDa.forgetKey();
+} catch {
+  entfernenMeldetFehler = true;
+}
+check("erneut auftauchender Schlüssel wird als Fehler gemeldet", entfernenMeldetFehler);
 
 // ── Gespräch ─────────────────────────────────────────────────────────────────
 

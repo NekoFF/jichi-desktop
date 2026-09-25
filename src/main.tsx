@@ -27,6 +27,7 @@ import {
   ChevronRight,
   FileText,
   FolderOpen,
+  KeyRound,
   Moon,
   Plus,
   Search,
@@ -108,8 +109,8 @@ function Einrichtung({
         <div className="marke-zeichen">
           <Terminal size={17} />
         </div>
-        <h1>Willkommen bei jichi</h1>
-        <p>Einmalig einrichten, dann nie wieder.</p>
+        <h1>jichi einrichten</h1>
+        <p>Gib deinen API-Schlüssel ein, um Chats zu starten.</p>
 
         <label className="feld">
           <span>Wie soll jichi dich nennen?</span>
@@ -125,6 +126,7 @@ function Einrichtung({
           <span>API-Schlüssel</span>
           <input
             type="password"
+            autoFocus
             value={key}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void verbinden()}
@@ -172,11 +174,9 @@ function Bericht({ bericht }: { bericht: DoctorReport | null }) {
 
 function Seitenleiste({
   snap,
-  layout,
   oeffneEinstellungen,
 }: {
   snap: Snapshot;
-  layout: Preferences["layout"];
   oeffneEinstellungen: () => void;
 }) {
   const [suche, setSuche] = useState("");
@@ -222,14 +222,7 @@ function Seitenleiste({
       {/* Ohne Systemleiste (titleBarStyle "Overlay") gibt es nichts, woran man
           das Fenster fassen könnte. Diese Zeile und die Kopfzeile sind der
           Ersatz dafür. */}
-      <div className="marke" data-tauri-drag-region>
-        {layout === "classic" && (
-          <>
-            <span className="marke-zeichen" data-tauri-drag-region><Terminal size={13} /></span>
-            <span className="marke-name" data-tauri-drag-region>jichi</span>
-          </>
-        )}
-      </div>
+      <div className="marke" data-tauri-drag-region />
 
       <div className="seite-inhalt">
         <div className="zeile suche">
@@ -531,8 +524,38 @@ function Einstellungen({
   const [config, setConfig] = useState<LaunchConfig | null>(agent.config);
   const [args, setArgs] = useState(formatArgs(agent.config?.args ?? []));
   const [prueft, setPrueft] = useState(false);
+  const [entfernt, setEntfernt] = useState(false);
+  const [verbindungsFehler, setVerbindungsFehler] = useState<string | null>(null);
 
   const r = snap.readiness;
+
+  async function pruefen() {
+    setPrueft(true);
+    setVerbindungsFehler(null);
+    try {
+      await agent.checkHealth();
+    } catch (ursache) {
+      setVerbindungsFehler(ursache instanceof Error ? ursache.message : String(ursache));
+    } finally {
+      setPrueft(false);
+    }
+  }
+
+  async function schluesselEntfernen() {
+    setEntfernt(true);
+    setVerbindungsFehler(null);
+    try {
+      await agent.forgetKey();
+      if (!agent.getSnapshot().needsSetup) {
+        throw new Error("Der Schlüssel ist noch verfügbar. Bitte prüfe die Schlüsselablage.");
+      }
+      schliessen();
+    } catch (ursache) {
+      setVerbindungsFehler(ursache instanceof Error ? ursache.message : String(ursache));
+    } finally {
+      setEntfernt(false);
+    }
+  }
 
   function speichern() {
     if (config) {
@@ -575,53 +598,63 @@ function Einstellungen({
             <button type="button" className={prefs.layout === "floating" ? "gewaehlt" : ""}
               aria-pressed={prefs.layout === "floating"}
               onClick={() => setPrefs({ ...prefs, layout: "floating" })}>
-              Freistehende Seitenleiste
+              <span className="layout-vorschau freistehend" aria-hidden="true"><i /><i /></span>
+              <span>Freistehend</span>
             </button>
             <button type="button" className={prefs.layout === "classic" ? "gewaehlt" : ""}
               aria-pressed={prefs.layout === "classic"}
               onClick={() => setPrefs({ ...prefs, layout: "classic" })}>
-              Klassisch
+              <span className="layout-vorschau klassisch" aria-hidden="true"><i /><i /></span>
+              <span>Klassisch</span>
             </button>
           </div>
         </div>
 
         <div className="abschnitt">
-          <h3>KI-Verbindung</h3>
-          <div className="bericht">
-            <div>
-              {r?.keyStored ? "Schlüssel hinterlegt" : "Kein Schlüssel"}
-              {r?.config.exists ? ` · ${r.config.models.length} Modelle` : " · keine Konfiguration"}
-              {r?.version ? ` · ${r.version}` : ""}
+          <h3>Zugang</h3>
+          <div className="zugang">
+            <div className="zugang-kopf">
+              <span className="zugang-symbol"><KeyRound size={16} /></span>
+              <div className="zugang-text">
+                <strong>jichi Assistent</strong>
+                <p>{!r
+                  ? "Der Zugang wird geprüft."
+                  : r.keyStored
+                    ? "Dein API-Schlüssel ist auf diesem Gerät gespeichert."
+                    : "Für neue Chats wird ein API-Schlüssel benötigt."}</p>
+              </div>
+              <span className={`zugang-status${r && !r.needsSetup ? " bereit" : ""}`}>
+                {!r ? "Prüft …" : r.needsSetup ? "Einrichtung nötig" : "Bereit"}
+              </span>
             </div>
-            {r?.config.models[0]?.apiBase && <div>{r.config.models[0].apiBase}</div>}
-          </div>
-          <Bericht bericht={snap.health} />
-          <div className="knopfreihe" style={{ marginTop: 12 }}>
-            <button
-              className="knopf"
-              disabled={prueft}
-              onClick={() => {
-                setPrueft(true);
-                void agent.checkHealth().finally(() => setPrueft(false));
-              }}
-            >
-              {prueft ? "Prüft …" : "Verbindung prüfen"}
-            </button>
-            <button
-              className="knopf gefahr"
-              onClick={() => {
-                schliessen();
-                void agent.forgetKey();
-              }}
-            >
-              Schlüssel entfernen
-            </button>
+            {verbindungsFehler && <p className="zugang-fehler" role="alert">{verbindungsFehler}</p>}
+            {snap.health && (
+              <details className="zugang-pruefung">
+                <summary>Prüfbericht ansehen</summary>
+                <Bericht bericht={snap.health} />
+              </details>
+            )}
+            <div className="knopfreihe zugang-aktionen">
+              <button className="knopf" disabled={prueft || entfernt} onClick={() => void pruefen()}>
+                {prueft ? "Prüft …" : "Zugang prüfen"}
+              </button>
+              <button className="knopf gefahr" disabled={!r?.keyStored || entfernt}
+                onClick={() => void schluesselEntfernen()}>
+                {entfernt ? "Entfernt …" : "API-Schlüssel entfernen"}
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="abschnitt">
           <details>
             <summary>Erweitert</summary>
+
+            <div className="technik-meta">
+              {r?.version && <div>Agent: {r.version}</div>}
+              {r?.config.models[0]?.apiBase && <div>Server: {r.config.models[0].apiBase}</div>}
+              {r?.config.exists && <div>Modelle: {r.config.models.length}</div>}
+            </div>
 
             <label className="feld mono">
               <span>Programm</span>
@@ -710,7 +743,7 @@ function App() {
 
   return (
     <div className={`app layout-${prefs.layout}`}>
-      <Seitenleiste snap={snap} layout={prefs.layout} oeffneEinstellungen={() => setEinstellungen(true)} />
+      <Seitenleiste snap={snap} oeffneEinstellungen={() => setEinstellungen(true)} />
 
       <main className="haupt">
         <header className="kopf" data-tauri-drag-region>

@@ -183,6 +183,9 @@ export class Agent {
     await this.#transport.secretForget(account);
     await this.disconnect();
     await this.refreshReadiness();
+    if (this.#snapshot.readiness?.keyStored !== false) {
+      throw new Error("Der API-Schlüssel ist weiterhin verfügbar.");
+    }
   }
 
   // ── Arbeitsverzeichnis ─────────────────────────────────────────────────────

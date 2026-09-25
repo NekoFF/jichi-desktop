@@ -460,6 +460,16 @@ fn secret_path(account: &str) -> Option<PathBuf> {
     Some(dir.join(account))
 }
 
+/// Merkt sich eine bewusste Entfernung, damit eine alte Schlüsseldatei den
+/// Zugang nicht sofort wiederherstellt. Die alte Datei bleibt unangetastet.
+fn secret_disabled_path(account: &str) -> Option<PathBuf> {
+    secret_path(account).map(|path| path.with_extension("disabled"))
+}
+
+fn legacy_secret_allowed(account: &str) -> bool {
+    !secret_disabled_path(account).is_some_and(|path| path.exists())
+}
+
 /// Alte Orte, an denen ein Schlüssel schon liegen kann — die in der README
 /// genannte Datei und die der JLU. Wird einer gefunden, übernimmt ihn die
 /// Anwendung beim ersten Zugriff, damit niemand ihn erneut abtippt.
@@ -497,7 +507,7 @@ fn secret_read(account: &str) -> Option<String> {
     }
 
     // Übernahme aus einer vorhandenen Schlüsseldatei.
-    if account == KEY_ENV {
+    if account == KEY_ENV && legacy_secret_allowed(account) {
         for alt in legacy_key_files() {
             if let Ok(text) = std::fs::read_to_string(&alt) {
                 let value = text.trim().to_string();
@@ -519,7 +529,9 @@ fn secret_noted(account: &str) -> bool {
     if vorhanden {
         return true;
     }
-    account == KEY_ENV && legacy_key_files().iter().any(|p| p.is_file())
+    account == KEY_ENV
+        && legacy_secret_allowed(account)
+        && legacy_key_files().iter().any(|p| p.is_file())
 }
 
 #[tauri::command]
@@ -529,7 +541,11 @@ fn secret_store(account: String, value: String) -> Result<(), String> {
         return Err("Der Schlüssel ist leer.".into());
     }
     let path = secret_path(&account).ok_or("ungültiger Name")?;
-    write_secret(&path, value)
+    write_secret(&path, value)?;
+    if let Some(disabled) = secret_disabled_path(&account) {
+        let _ = std::fs::remove_file(disabled);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -540,6 +556,9 @@ fn secret_present(account: String) -> bool {
 #[tauri::command]
 fn secret_forget(account: String) -> Result<(), String> {
     let path = secret_path(&account).ok_or("ungültiger Name")?;
+    if let Some(disabled) = secret_disabled_path(&account) {
+        write_secret(&disabled, "disabled")?;
+    }
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         // Nicht vorhanden ist kein Fehler: das Ziel ist erreicht.
@@ -873,11 +892,11 @@ fn default_launch() -> Launch {
 
     let resolved = which(&program).map(|p| p.to_string_lossy().into_owned());
 
-    // Der Schlüsselbund gewinnt. Eine Datei bleibt der zweite Weg — für einen
-    // Rechner ohne Schlüsselbund, und für den, der seine Datei schon hat.
+    // Die eigene Ablage gewinnt. Eine ältere Schlüsseldatei bleibt ein Weg für
+    // die Erstübernahme, bis der Benutzer den Schlüssel ausdrücklich entfernt.
     let env: Vec<EnvHint> = if secret_noted(KEY_ENV) {
         vec![EnvHint { name: KEY_ENV.into(), secret: Some(KEY_ENV.into()), file: None }]
-    } else {
+    } else if legacy_secret_allowed(KEY_ENV) {
         key_file_candidates()
             .into_iter()
             .find(|p| p.is_file())
@@ -889,6 +908,8 @@ fn default_launch() -> Launch {
                 }]
             })
             .unwrap_or_default()
+    } else {
+        Vec::new()
     };
 
     let hint = if windows {
@@ -1463,9 +1484,11 @@ mod tests {
         let konto = "TEST_KEY";
         secret_forget(konto.into()).unwrap();
         assert!(!secret_noted(konto), "vorher ist nichts da");
+        assert!(!legacy_secret_allowed(konto), "alte Dateien bleiben nach Entfernen gesperrt");
 
         secret_store(konto.into(), "  geheim-12345\n".into()).unwrap();
         assert!(secret_noted(konto));
+        assert!(legacy_secret_allowed(konto), "ein neuer Schlüssel hebt die Sperre auf");
 
         // Über den Weg, den auch der Start nimmt -- und getrimmt.
         let env = resolve_env(&[EnvSpec {
@@ -1488,6 +1511,7 @@ mod tests {
 
         secret_forget(konto.into()).unwrap();
         assert!(!secret_noted(konto));
+        assert!(!legacy_secret_allowed(konto));
         secret_forget(konto.into()).unwrap(); // zweimal ist kein Fehler
         assert!(secret_store(konto.into(), "   ".into()).is_err(), "leer wird abgelehnt");
     }
