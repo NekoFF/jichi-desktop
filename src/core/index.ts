@@ -13,6 +13,7 @@
  *   settings.ts   wie der Agent gestartet wird — und was ausdrücklich nicht gespeichert wird.
  *   preferences.ts  wie die Anwendung sich verhält (Name, Erscheinungsbild).
  *   labels.ts     deutsche Wörter und Töne, damit Komponenten ACP nicht kennen.
+ *   preview.ts    was ein Werkzeug tun wird, aus seinen Argumenten gelesen.
  */
 
 export { Agent, agent } from "./agent.ts";
@@ -20,6 +21,7 @@ export { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 export {
   clearStored,
   formatArgs,
+  launchArgs,
   mergeConfig,
   parseArgs,
   readStored,
@@ -32,16 +34,27 @@ export {
   emptySnapshot,
   MAX_DIAGNOSTICS,
   MAX_TOOL_OUTPUT,
+  type AgentMode,
+  type GatewayState,
   type MessageItem,
   type MessageRole,
   type NoticeItem,
   type PendingPermission,
   type Snapshot,
   type Status,
+  type TerminalView,
   type ToolDiff,
   type ToolItem,
   type TranscriptItem,
 } from "./state.ts";
+export {
+  applyPlan,
+  planOf,
+  visible,
+  type Plan,
+  type PlannedEdit,
+  type PlannedFile,
+} from "./preview.ts";
 export {
   applyAppearance,
   DEFAULT_PREFERENCES,
@@ -67,7 +80,7 @@ export {
   type Tone,
 } from "./labels.ts";
 export {
-  CLIENT_CAPABILITIES,
+  clientCapabilities,
   Method,
   PROTOCOL_VERSION,
   type AgentCapabilities,
@@ -83,6 +96,8 @@ export {
   type DoctorCheck,
   type DoctorReport,
   type EnvSpec,
+  type GatewayModel,
+  type GatewayReport,
   type ModelInfo,
   type Readiness,
   type StoredSession,

@@ -20,6 +20,27 @@ export interface LaunchConfig {
   /** Absoluter Pfad. ACP verlangt ihn für `session/new`. */
   cwd: string;
   env: EnvSpec[];
+  /**
+   * `--model`: ein Name oder eine Id aus der Konfiguration des Agenten, oder
+   * eine rohe Id am selben Server (jichi nimmt sie dann für den aktiven
+   * Eintrag). `null`: das, was die Konfiguration als aktiv führt.
+   */
+  model?: string | null;
+  /** `--plan` / `--auto`. ACP kennt keinen Moduswechsel; es ist ein Startschalter. */
+  mode?: "chat" | "plan" | "auto";
+}
+
+/**
+ * Die Argumente, mit denen der Agent wirklich startet: die eingetragenen,
+ * ergänzt um Modell und Modus. Ein gleichnamiger Schalter in den eingetragenen
+ * Argumenten wird nicht verdoppelt.
+ */
+export function launchArgs(config: LaunchConfig): string[] {
+  const args = [...config.args];
+  if (config.model && !args.includes("--model")) args.push("--model", config.model);
+  if (config.mode === "plan" && !args.includes("--plan")) args.push("--plan");
+  if (config.mode === "auto" && !args.includes("--auto")) args.push("--auto");
+  return args;
 }
 
 const STORAGE_KEY = "jichi-desktop.launch.v1";
@@ -89,6 +110,10 @@ export function mergeConfig(
     args: Array.isArray(stored?.args) ? stored.args : suggestion.args,
     cwd: stored?.cwd?.trim() || suggestion.cwd,
     env: Array.isArray(stored?.env) ? stored.env : suggestion.env.map((e) => ({ ...e })),
+    model: typeof stored?.model === "string" && stored.model.trim() ? stored.model.trim() : null,
+    // „auto“ wird bewusst nie gespeichert: ohne Rückfrage zu arbeiten ist eine
+    // Entscheidung für diese Sitzung, keine, die ein Neustart erben soll.
+    mode: stored?.mode === "plan" ? "plan" : "chat",
   };
 }
 

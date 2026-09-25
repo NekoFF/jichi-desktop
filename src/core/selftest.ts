@@ -13,13 +13,19 @@
  */
 
 import { Agent } from "./agent.ts";
+import { JsonRpcPeer } from "./jsonrpc.ts";
+import { applyPlan, planOf, visible } from "./preview.ts";
 import type {
   ConfigReport,
   DoctorReport,
   EnvSpec,
   Readiness,
+  GatewayReport,
   SpawnSpec,
   StoredSession,
+  TermExit,
+  TermOutput,
+  TermSpec,
   Transport,
   TransportEvents,
 } from "./transport.ts";
@@ -122,7 +128,7 @@ class FakeAgent implements Transport {
     return {
       ok: 34,
       warn: 2,
-      fail: 0,
+      fail: this.doctorFehler,
       exit: 0,
       checks: [
         { status: "ok", label: "API key present for the active model", detail: "" },
@@ -153,6 +159,61 @@ class FakeAgent implements Transport {
 
   async pickDirectory() {
     return this.ordner;
+  }
+
+  datei: string | null = "/opt/jichi/jichi";
+  async pickFile() {
+    return this.datei;
+  }
+
+  doctorFehler = 0;
+
+  // ── Gateway, Vorschau, Terminals ───────────────────────────────────────────
+  gatewayAntwort: GatewayReport = {
+    base: "https://api.hrz.uni-giessen.de/v1",
+    models: [
+      { id: "jlu/qwen3-coder-next", kind: "chat" },
+      { id: "jlu/whisper", kind: "transcribe" },
+    ],
+  };
+  async gatewayModels() {
+    return this.gatewayAntwort;
+  }
+  dateien = new Map<string, string>([["/tmp/projekt/a.txt", "eins\nzwei\n"]]);
+  async readWorkspaceFile(cwd: string, path: string) {
+    return this.dateien.get(path.startsWith("/") ? path : `${cwd}/${path}`) ?? null;
+  }
+  readonly terminals = true;
+  termSpecs: TermSpec[] = [];
+  released: string[] = [];
+  #termExit: TermExit = { exitCode: 0, signal: null };
+  async termCreate(spec: TermSpec) {
+    this.termSpecs.push(spec);
+    return `t${this.termSpecs.length}`;
+  }
+  async termOutput(): Promise<TermOutput> {
+    return { output: "ok\n", truncated: false, exitStatus: this.#termExit };
+  }
+  async termWait() {
+    return this.#termExit;
+  }
+  async termKill() {}
+  async termRelease(id: string) {
+    this.released.push(id);
+  }
+  async readAttachment(path: string) {
+    return { name: path.split("/").pop() ?? path, path, text: "Inhalt der Datei" };
+  }
+  links: string[] = [];
+  async openUrl(url: string) {
+    this.links.push(url);
+  }
+  schreibt(id: string, chunk: string) {
+    this.#events?.termOutput(id, chunk);
+  }
+  endet(id: string, exit: TermExit) {
+    this.#termExit = exit;
+    this.#events?.termExit(id, exit);
   }
 
   async listen(events: TransportEvents) {
@@ -313,8 +374,9 @@ check(
 );
 check("initialize ging hinaus", fake.sent.some((l) => l.includes('"initialize"')));
 check(
-  "es wird keine Datei- oder Terminalfähigkeit angemeldet",
-  JSON.parse(fake.sent[0]).params.clientCapabilities.terminal === false,
+  "Terminals werden angemeldet, Dateizugriffe nicht",
+  JSON.parse(fake.sent[0]).params.clientCapabilities.terminal === true &&
+    JSON.parse(fake.sent[0]).params.clientCapabilities.fs.writeTextFile === false,
 );
 
 fake.reply("initialize", {
@@ -479,6 +541,312 @@ check(
   "Zeilen eines toten Kindes werden verworfen",
   agent.getSnapshot().transcript.length === lengthBefore,
 );
+
+
+// ── Ordner, Einstellungen, Wiederholung ──────────────────────────────────────
+
+/** Wie oft eine Methode schon gesendet wurde. */
+const gesendet = (f: FakeAgent, method: string) =>
+  f.sent.filter((l) => (JSON.parse(l) as { method?: string }).method === method).length;
+
+/** Warten, bis die Methode ein weiteres Mal hinausging — ein Neustart hat mehrere Schritte. */
+async function erwarte(f: FakeAgent, method: string, bisher: number): Promise<void> {
+  for (let i = 0; i < 50 && gesendet(f, method) <= bisher; i += 1) await settle();
+  if (gesendet(f, method) <= bisher) throw new Error(`${method} ging nie hinaus`);
+}
+
+/** Einen Start samt Handschlag und neuer Sitzung beantworten. */
+async function handshake(
+  f: FakeAgent,
+  sessionId: string,
+  bisher = { init: gesendet(f, "initialize"), neu: gesendet(f, "session/new") },
+): Promise<void> {
+  await erwarte(f, "initialize", bisher.init);
+  f.reply("initialize", { protocolVersion: 1, agentCapabilities: { loadSession: true } });
+  await erwarte(f, "session/new", bisher.neu);
+  f.reply("session/new", { sessionId });
+  await settle();
+}
+
+/** Zähler vor einem Aufruf festhalten — sonst zählt `handshake` erst, wenn alles schon lief. */
+const stand = (f: FakeAgent) => ({ init: gesendet(f, "initialize"), neu: gesendet(f, "session/new") });
+
+const werk = new FakeAgent();
+werk.schluesselbund.set("JICHI_API_KEY", "sk-vorhanden");
+const zweiter = new Agent(werk);
+await zweiter.init();
+check("das Heimatverzeichnis ist noch kein Projekt", !zweiter.getSnapshot().hasProject);
+
+let vor = stand(werk);
+let laeuft = zweiter.newSession();
+await handshake(werk, "W1", vor);
+await laeuft;
+check("erste Sitzung im vorgeschlagenen Ordner", werk.spawns.length === 1 && werk.spawns[0].cwd === "/tmp/werkstatt");
+
+// Ein anderes Projekt öffnen heisst: der Agent zieht mit um.
+vor = stand(werk);
+laeuft = zweiter.openWorkspace("/tmp/anders");
+await handshake(werk, "W2", vor);
+await laeuft;
+check(
+  "ein anderer Ordner startet den Agenten dort neu",
+  werk.spawns.length === 2 && werk.spawns[1].cwd === "/tmp/anders",
+  JSON.stringify(werk.spawns.map((x) => x.cwd)),
+);
+check("und gilt als Projekt", zweiter.getSnapshot().hasProject && zweiter.getSnapshot().sessionId === "W2");
+
+// Ein Zug mit Inhalt, dann unverändert speichern: nichts darf verloren gehen.
+laeuft = zweiter.send("Hallo");
+await erwarte(werk, "session/prompt", gesendet(werk, "session/prompt") - 1);
+werk.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hi" } }, "W2");
+werk.reply("session/prompt", { stopReason: "end_turn" });
+await laeuft;
+const vorher = zweiter.getSnapshot().transcript.length;
+await zweiter.setConfig({ ...zweiter.config! });
+check(
+  "unverändertes Speichern lässt den Chat stehen",
+  werk.spawns.length === 2 &&
+    zweiter.getSnapshot().sessionId === "W2" &&
+    zweiter.getSnapshot().transcript.length === vorher,
+  `spawns=${werk.spawns.length} session=${zweiter.getSnapshot().sessionId}`,
+);
+
+// Geänderte Argumente dagegen brauchen einen neuen Prozess.
+vor = stand(werk);
+laeuft = zweiter.setConfig({ ...zweiter.config!, args: ["--acp", "--plan"] });
+await handshake(werk, "W3", vor);
+await laeuft;
+check(
+  "geänderte Argumente starten den Agenten neu",
+  werk.spawns.length === 3 && werk.spawns[2].args.includes("--plan"),
+);
+
+// Ein Fehler im Zug verwirft das Gespräch nicht.
+let prompts = gesendet(werk, "session/prompt");
+laeuft = zweiter.send("mach was");
+await erwarte(werk, "session/prompt", prompts);
+werk.line({ jsonrpc: "2.0", id: werk.idOf("session/prompt"), error: { code: -32000, message: "Modell nicht erreichbar" } });
+await laeuft;
+check("ein Fehler im Zug wird angezeigt", zweiter.getSnapshot().status === "error");
+check("und erlaubt einen neuen Versuch", zweiter.getSnapshot().canSend);
+prompts = gesendet(werk, "session/prompt");
+laeuft = zweiter.send("nochmal");
+await erwarte(werk, "session/prompt", prompts);
+check(
+  "der neue Versuch bleibt im selben Chat",
+  zweiter.getSnapshot().sessionId === "W3" && werk.spawns.length === 3 &&
+    !werk.sent.slice(-1)[0].includes("session/new"),
+  `session=${zweiter.getSnapshot().sessionId}`,
+);
+let wechselAbgelehnt = false;
+try {
+  await zweiter.newSession();
+} catch {
+  wechselAbgelehnt = true;
+}
+check("während eines Zuges wird kein neuer Chat begonnen", wechselAbgelehnt && !zweiter.getSnapshot().canSwitch);
+werk.reply("session/prompt", { stopReason: "end_turn" });
+await laeuft;
+
+// Zwei gleichzeitige Starts ergeben einen Prozess.
+const doppelt = new FakeAgent();
+doppelt.schluesselbund.set("JICHI_API_KEY", "sk-vorhanden");
+const hastig = new Agent(doppelt);
+await hastig.init();
+const a = hastig.connect();
+const b = hastig.connect();
+await settle();
+doppelt.reply("initialize", { protocolVersion: 1, agentCapabilities: {} });
+await settle();
+check("zwei gleichzeitige Starts starten einen Prozess", doppelt.spawns.length === 1, String(doppelt.spawns.length));
+doppelt.reply("session/new", { sessionId: "D1" });
+await settle();
+doppelt.reply("session/new", { sessionId: "D2" });
+await Promise.all([a, b]);
+
+// Die Einrichtung bleibt offen, wenn der Agent Fehler meldet.
+const kaputt = new FakeAgent();
+kaputt.konfiguriert = false;
+kaputt.doctorFehler = 2;
+const vorsichtig = new Agent(kaputt);
+await vorsichtig.init();
+await vorsichtig.setup("sk-falsch");
+check("gemeldete Fehler halten die Einrichtung offen", vorsichtig.getSnapshot().needsSetup);
+vorsichtig.finishSetup();
+check("bis der Benutzer sie bewusst verlässt", !vorsichtig.getSnapshot().needsSetup);
+
+// Ein von Hand gewähltes Programm gilt auch für die Bereitschaft.
+const ohne = new FakeAgent();
+const gewaehlt = new Agent(ohne);
+await gewaehlt.init();
+await gewaehlt.pickProgram();
+check("ein gewähltes Programm wird gespeichert", gewaehlt.config?.program === "/opt/jichi/jichi");
+
+// Eine verschluckte Anfrage wartet nicht ewig.
+const stumm = new JsonRpcPeer({
+  send: async () => {},
+  onNotification: () => {},
+  onRequest: async () => null,
+  onMalformed: () => {},
+});
+let frist = "";
+await stumm.request("initialize", {}, 10).catch((e: Error) => {
+  frist = e.message;
+});
+check("eine Anfrage mit Frist gibt auf", frist.includes("keine Antwort"), frist);
+check("und hinterlässt nichts Offenes", stumm.pendingCount === 0);
+
+
+// ── Terminals für den Agenten ────────────────────────────────────────────────
+
+const term = new FakeAgent();
+term.schluesselbund.set("JICHI_API_KEY", "sk-vorhanden");
+const befehl = new Agent(term);
+await befehl.init();
+vor = stand(term);
+laeuft = befehl.newSession();
+await handshake(term, "T1", vor);
+await laeuft;
+prompts = gesendet(term, "session/prompt");
+laeuft = befehl.send("Tests bitte");
+await erwarte(term, "session/prompt", prompts);
+term.update({ sessionUpdate: "tool_call", toolCallId: "r1", title: "run_tests", kind: "execute",
+  status: "in_progress", rawInput: { command: "make test" } }, "T1");
+term.line({ jsonrpc: "2.0", id: 501, method: "terminal/create",
+  params: { sessionId: "T1", command: "/bin/sh", args: ["-c", "make test"], cwd: "/tmp/werkstatt", outputByteLimit: 65536 } });
+await settle();
+const erzeugt = term.answers().find((a) => a.id === 501);
+check("terminal/create liefert eine Kennung", JSON.stringify(erzeugt?.result) === JSON.stringify({ terminalId: "t1" }), JSON.stringify(erzeugt));
+check("der Befehl läuft mit Argumenten und Ordner", term.termSpecs[0]?.command === "/bin/sh" &&
+  term.termSpecs[0]?.args?.[1] === "make test" && term.termSpecs[0]?.cwd === "/tmp/werkstatt");
+term.update({ sessionUpdate: "tool_call_update", toolCallId: "r1",
+  content: [{ type: "content", content: { type: "terminal", terminalId: "t1" } }] }, "T1");
+term.schreibt("t1", "CC main.o\n");
+term.schreibt("t1", "OK 3 tests\n");
+const karte = befehl.getSnapshot().transcript.find((i) => i.kind === "tool");
+check("die Karte kennt ihr Terminal", karte?.kind === "tool" && karte.terminalId === "t1", JSON.stringify(karte));
+check("und die Ausgabe wächst live", befehl.getSnapshot().terminals.t1?.output === "CC main.o\nOK 3 tests\n");
+check("ein fremdes Terminal wird nicht angezeigt", (term.schreibt("t9", "x"), !("t9" in befehl.getSnapshot().terminals)));
+term.endet("t1", { exitCode: 2, signal: null });
+term.line({ jsonrpc: "2.0", id: 502, method: "terminal/wait_for_exit", params: { sessionId: "T1", terminalId: "t1" } });
+await settle();
+const gewartet = term.answers().find((a) => a.id === 502)?.result as { exitStatus?: { exitCode: number } } | undefined;
+check("wait_for_exit meldet den Rückgabewert so, wie jichi ihn liest", gewartet?.exitStatus?.exitCode === 2, JSON.stringify(gewartet));
+term.line({ jsonrpc: "2.0", id: 503, method: "terminal/release", params: { sessionId: "T1", terminalId: "t1" } });
+await settle();
+check("release gibt das Terminal frei", term.released.includes("t1"));
+check("die Ausgabe bleibt nach dem Freigeben sichtbar", befehl.getSnapshot().terminals.t1?.exit?.exitCode === 2);
+term.line({ jsonrpc: "2.0", id: 504, method: "terminal/output", params: { sessionId: "T1", terminalId: "t1" } });
+await settle();
+check("ein freigegebenes Terminal ist unbekannt", term.answers().find((a) => a.id === 504)?.error?.code === -32602);
+term.reply("session/prompt", { stopReason: "end_turn" });
+await laeuft;
+
+// ── Modell und Modus ─────────────────────────────────────────────────────────
+
+let spawns = term.spawns.length;
+const loads = gesendet(term, "session/load");
+laeuft = befehl.setModel("jlu/gemma-4-26b-it");
+await erwarte(term, "initialize", gesendet(term, "initialize"));
+term.reply("initialize", { protocolVersion: 1, agentCapabilities: { loadSession: true } });
+await erwarte(term, "session/load", loads);
+term.reply("session/load", null);
+await laeuft;
+check("ein anderes Modell startet den Agenten mit --model neu",
+  term.spawns.length === spawns + 1 && term.spawns[spawns].args.join(" ").includes("--model jlu/gemma-4-26b-it"),
+  JSON.stringify(term.spawns[spawns]?.args));
+check("und behält den Chat", befehl.getSnapshot().sessionId === "T1");
+
+spawns = term.spawns.length;
+vor = stand(term);
+laeuft = befehl.setMode("plan");
+await handshake(term, "T2", vor);
+await laeuft;
+check("Plan-Modus startet mit --plan in einem neuen Chat",
+  term.spawns[spawns]?.args.includes("--plan") && befehl.getSnapshot().sessionId === "T2" &&
+    befehl.getSnapshot().mode === "plan");
+check("Modell und Modus stehen zusammen in den Argumenten",
+  term.spawns[spawns]?.args.includes("--model") === true);
+
+// ── Bilder ───────────────────────────────────────────────────────────────────
+
+let bildAbgelehnt = "";
+await befehl.send("was ist das?", [{ data: "iVBORw0K", mimeType: "image/png" }]).catch((e: Error) => {
+  bildAbgelehnt = e.message;
+});
+check("ohne Bildfähigkeit wird kein Bild gesendet", bildAbgelehnt.includes("keine Bilder"), bildAbgelehnt);
+
+const sehend = new FakeAgent();
+sehend.schluesselbund.set("JICHI_API_KEY", "sk-vorhanden");
+const auge = new Agent(sehend);
+await auge.init();
+vor = stand(sehend);
+laeuft = auge.newSession();
+await erwarte(sehend, "initialize", vor.init);
+sehend.reply("initialize", { protocolVersion: 1, agentCapabilities: { promptCapabilities: { image: true } } });
+await erwarte(sehend, "session/new", vor.neu);
+sehend.reply("session/new", { sessionId: "B1" });
+await laeuft;
+check("ein sehendes Modell erlaubt Bilder", auge.getSnapshot().canAttachImages);
+prompts = gesendet(sehend, "session/prompt");
+laeuft = auge.send("was ist das?", [{ data: "iVBORw0K", mimeType: "image/png" }]);
+await erwarte(sehend, "session/prompt", prompts);
+const mitBild = JSON.parse(sehend.sent[sehend.sent.length - 1]).params.prompt as Array<{ type: string }>;
+check("das Bild geht vor dem Text hinaus", mitBild[0]?.type === "image" && mitBild[1]?.type === "text");
+const eigen = auge.getSnapshot().transcript.find((i) => i.kind === "message" && i.role === "user");
+check("und steht im Verlauf", eigen?.kind === "message" && eigen.images?.[0]?.startsWith("data:image/png;base64,") === true);
+sehend.reply("session/prompt", { stopReason: "end_turn" });
+await laeuft;
+
+// ── Gateway ──────────────────────────────────────────────────────────────────
+
+check("mit Schlüssel fragt die Anwendung das Gateway", befehl.getSnapshot().gateway?.models.length === 2);
+term.gatewayAntwort = { base: "x", models: [] };
+term.gatewayModels = async () => { throw new Error("nicht erreichbar"); };
+await befehl.refreshGateway();
+check("ein Netzfehler leert die Liste nicht", befehl.getSnapshot().gateway?.models.length === 2 &&
+  befehl.getSnapshot().gateway?.error === "nicht erreichbar");
+
+// ── Vorschau ─────────────────────────────────────────────────────────────────
+
+const plan = planOf({ path: "a.txt", old_string: "zwei", new_string: "drei" });
+check("edit_file wird als Dateiänderung gelesen", plan.kind === "files" && plan.files[0].edits.length === 1);
+const vorher2 = await befehl.readProjectFile("a.txt").catch(() => null);
+check("der alte Inhalt kommt aus dem Projekt", vorher2 === null || typeof vorher2 === "string");
+check("die Änderung wird ausgerechnet",
+  plan.kind === "files" && applyPlan("eins\nzwei\n", plan.files[0]).text === "eins\ndrei\n");
+check("ein nicht gefundener Text wird gemeldet",
+  plan.kind === "files" && applyPlan("nichts", plan.files[0]).missing === 1);
+const patch = planOf({ edits: [{ path: "a", old_string: "x", new_string: "y" }, { path: "a", old_string: "y", new_string: "z", replace_all: true }] });
+check("apply_patch fasst Änderungen je Datei zusammen", patch.kind === "files" && patch.files.length === 1 &&
+  applyPlan("x x", patch.files[0]).text === "z x");
+check("ein Befehl wird als Befehl gelesen", planOf({ command: "make test" }).kind === "command");
+check("kaputte Argumente sind unlesbar", planOf('{"command":"sudo id",').kind === "unreadable");
+const versteckt = visible("echo ok\r\u001b[2Krm -rf ~ \u202e");
+check("verborgene Zeichen werden sichtbar", versteckt.suspicious && versteckt.text.includes("␍") &&
+  versteckt.text.includes("␛") && versteckt.text.includes("U+202E"), versteckt.text);
+check("gewöhnlicher Text bleibt unberührt", !visible("ls -la\n\tgrep x").suspicious);
+// Eine angehängte Datei geht als eingebettete Ressource mit.
+term.datei = "/tmp/werkstatt/notiz.md";
+const angehaengt = await befehl.pickAttachment();
+check("eine Datei lässt sich anhängen", angehaengt?.name === "notiz.md" && angehaengt.text === "Inhalt der Datei");
+prompts = gesendet(term, "session/prompt");
+laeuft = befehl.send("lies das", [], angehaengt ? [angehaengt] : []);
+await erwarte(term, "session/prompt", prompts);
+const mitDatei = JSON.parse(term.sent[term.sent.length - 1]).params.prompt as Array<{ type: string; resource?: { uri: string; text: string } }>;
+check("als Ressource vor dem Text", mitDatei[0]?.type === "resource" &&
+  mitDatei[0].resource?.uri === "file:///tmp/werkstatt/notiz.md" && mitDatei[0].resource.text === "Inhalt der Datei" &&
+  mitDatei[1]?.type === "text", JSON.stringify(mitDatei));
+const meine = [...befehl.getSnapshot().transcript].reverse().find((i) => i.kind === "message" && i.role === "user");
+check("der Verlauf nennt die Datei und die Uhrzeit", meine?.kind === "message" && meine.files?.[0] === "notiz.md" && typeof meine.at === "number");
+term.update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Gelesen." } }, befehl.getSnapshot().sessionId ?? "");
+term.reply("session/prompt", { stopReason: "end_turn" });
+await laeuft;
+const antwort = [...befehl.getSnapshot().transcript].reverse().find((i) => i.kind === "message" && i.role === "agent");
+check("eine live geschriebene Antwort trägt ihre Uhrzeit", antwort?.kind === "message" && typeof antwort.at === "number");
+
+await befehl.openLink("https://uni-giessen.de");
+check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");
 
 // ── Ergebnis ─────────────────────────────────────────────────────────────────
 

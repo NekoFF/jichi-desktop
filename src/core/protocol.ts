@@ -43,10 +43,9 @@ export interface ResourceLinkBlock {
 }
 
 /**
- * Ein laufendes Terminal des Klienten. Der Agent schickt das nur, wenn der
- * Klient die Terminal-Fähigkeit angemeldet hat — diese Anwendung tut das nicht
- * (siehe `CLIENT_CAPABILITIES`). Der Typ steht hier, damit ein späterer Ausbau
- * nichts umbenennen muss.
+ * Ein laufendes Terminal des Klienten. Der Agent schickt das, sobald er einen
+ * Befehl über `terminal/create` hier ausführen lässt — die Werkzeugkarte zeigt
+ * dann dessen Ausgabe, während er läuft.
  */
 export interface TerminalBlock {
   type: "terminal";
@@ -85,24 +84,24 @@ export interface ClientCapabilities {
 }
 
 /**
- * Was diese Anwendung anmeldet — und warum sie fast nichts anmeldet.
+ * Was diese Anwendung anmeldet.
  *
- * Meldet ein Klient `fs.readTextFile`/`writeTextFile` an, leitet der Agent
- * *alle* Dateizugriffe seiner Werkzeuge über den Klienten um. Das ist für einen
- * Editor richtig: dort soll der Agent den ungespeicherten Puffer sehen. Diese
- * Anwendung hat keine Puffer — sie würde nur die Platte lesen und schreiben, die
- * der Agent ohnehin selbst erreicht, mit einer Netzrunde mehr und einer
- * Fehlerquelle mehr. Gleiches gilt für `terminal`: ohne Terminalfläche gäbe es
- * nichts anzuzeigen, was der Agent nicht selbst ausführen kann.
+ * **`terminal`: ja** (ausser unter Windows, wo jichi in WSL läuft). Dann führt
+ * der Agent seine Befehle über `terminal/*` hier aus, und die Werkzeugkarte
+ * zeigt die Ausgabe live — statt erst am Ende einen Block. Die Erlaubnis holt
+ * der Agent vorher ein, wie sonst auch.
  *
- * Beide Fähigkeiten sind im Agenten fähigkeitsgesteuert und fallen auf den
- * direkten Weg zurück, wenn der Klient sie nicht anmeldet. Nichts anzumelden ist
- * daher kein Verzicht, sondern der unveränderte Normalbetrieb.
+ * **`fs`: nein.** Meldet ein Klient `fs.readTextFile`/`writeTextFile` an,
+ * leitet der Agent *alle* Dateizugriffe seiner Werkzeuge über den Klienten um.
+ * Das ist für einen Editor richtig: dort soll der Agent den ungespeicherten
+ * Puffer sehen. Diese Anwendung hat keine Puffer — sie würde nur die Platte
+ * lesen und schreiben, die der Agent ohnehin erreicht. Schlimmer: jichi fällt
+ * bei einer abgelehnten Schreibanfrage auf die Platte zurück, eine Ablehnung
+ * hier hätte also nichts verhindert.
  */
-export const CLIENT_CAPABILITIES: ClientCapabilities = {
-  fs: { readTextFile: false, writeTextFile: false },
-  terminal: false,
-};
+export function clientCapabilities(terminals: boolean): ClientCapabilities {
+  return { fs: { readTextFile: false, writeTextFile: false }, terminal: terminals };
+}
 
 export interface InitializeParams {
   protocolVersion: number;
@@ -247,6 +246,21 @@ export interface RequestPermissionResult {
   outcome: PermissionOutcome;
 }
 
+// ── terminal/* (Agent → Klient, Anfragen) ────────────────────────────────────
+
+export interface TerminalCreateParams {
+  sessionId: string;
+  command: string;
+  args?: string[];
+  cwd?: string;
+  outputByteLimit?: number;
+}
+
+export interface TerminalIdParams {
+  sessionId: string;
+  terminalId: string;
+}
+
 // ── Methodennamen an einer Stelle ────────────────────────────────────────────
 
 export const Method = {
@@ -259,4 +273,9 @@ export const Method = {
   // Agent → Klient
   update: "session/update",
   requestPermission: "session/request_permission",
+  terminalCreate: "terminal/create",
+  terminalOutput: "terminal/output",
+  terminalWait: "terminal/wait_for_exit",
+  terminalKill: "terminal/kill",
+  terminalRelease: "terminal/release",
 } as const;

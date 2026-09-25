@@ -19,25 +19,26 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
 } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  ArrowUp,
+  Check,
   ChevronDown,
+  Copy,
+  RotateCcw,
   ChevronRight,
   FileText,
   FolderOpen,
   KeyRound,
   Moon,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Sun,
   Terminal,
   Trash2,
   Wrench,
-  X,
 } from "lucide-react";
 
 import {
@@ -60,34 +61,34 @@ import {
   type Preferences,
   type StoredSession,
   type Snapshot,
+  type TerminalView,
   type ToolItem,
   type TranscriptItem,
 } from "./core/index.ts";
+import { Eingabe } from "./ui/Eingabe.tsx";
+import { Marke } from "./ui/Marke.tsx";
+import { Markdown } from "./ui/Markdown.tsx";
+import { Vorschau } from "./ui/Vorschau.tsx";
 import "./styles.css";
 
 const useAgent = (): Snapshot =>
   useSyncExternalStore(agent.subscribe, agent.getSnapshot);
 
+const IS_MAC = /Mac/i.test(navigator.userAgent);
+/** Die Tastenkombination so, wie sie auf dieser Plattform heisst. */
+const kurz = (taste: string) => (IS_MAC ? `⌘${taste}` : `Strg+${taste}`);
+
+const nachricht = (ursache: unknown) =>
+  ursache instanceof Error ? ursache.message : String(ursache);
+
 // ── Einrichtung ──────────────────────────────────────────────────────────────
 
-const setupPixelPattern = [
-  ".......x..........",
-  ".....xxx.....x....",
-  "...xx.xxxx..xxx...",
-  "..xxx..xxxx.xxxx..",
-  "...xxxx..xxxxxx...",
-  ".....xxx..xxxx....",
-  ".......x...xx.....",
-];
-
-const setupPixels = setupPixelPattern.flatMap((row, y) =>
-  [...row].flatMap((cell, x) => cell === "x" ? [{ x, y }] : []),
-);
-
 function Einrichtung({
+  snap,
   prefs,
   setPrefs,
 }: {
+  snap: Snapshot;
   prefs: Preferences;
   setPrefs: (p: Preferences) => void;
 }) {
@@ -95,41 +96,54 @@ function Einrichtung({
   const [key, setKey] = useState("");
   const [laeuft, setLaeuft] = useState(false);
   const [meldung, setMeldung] = useState<string | null>(null);
-  const [bericht, setBericht] = useState<DoctorReport | null>(null);
+
+  const r = snap.readiness;
+  const agentFehlt = r !== null && !r.agent;
+  // Hängt die Einrichtung an einem Fehlbericht, liegt der Schlüssel schon ab:
+  // dann wird nur neu geprüft, nicht erneut nach ihm gefragt.
+  const pruefenStattEingeben = snap.setupHold && !!r?.keyStored;
 
   async function verbinden() {
-    if (!key.trim()) {
+    if (!pruefenStattEingeben && !key.trim()) {
       setMeldung("Bitte den API-Schlüssel eintragen.");
       return;
     }
     setLaeuft(true);
-    setMeldung("Schlüssel wird abgelegt und geprüft …");
-    setBericht(null);
+    setMeldung(pruefenStattEingeben ? "Zugang wird geprüft …" : "Schlüssel wird abgelegt und geprüft …");
     setPrefs({ ...prefs, name: name.trim() });
     try {
-      const ergebnis = await agent.setup(key);
-      setKey(""); // Der Schlüssel hat im Fenster nichts mehr zu suchen.
-      setBericht(ergebnis);
-      setMeldung(ergebnis.fail ? "Der Agent meldet Fehler." : null);
+      if (pruefenStattEingeben) {
+        const ergebnis = await agent.checkHealth();
+        if (!ergebnis.fail) agent.finishSetup();
+      } else {
+        await agent.setup(key);
+      }
+      setMeldung(null);
     } catch (ursache) {
-      setMeldung(ursache instanceof Error ? ursache.message : String(ursache));
+      setMeldung(nachricht(ursache));
     } finally {
+      // Der Schlüssel hat im Fenster nichts mehr zu suchen — sobald er abgelegt ist.
+      if (agent.getSnapshot().readiness?.keyStored) setKey("");
       setLaeuft(false);
     }
   }
 
+  async function programmWaehlen() {
+    setMeldung(null);
+    try {
+      await agent.pickProgram();
+    } catch (ursache) {
+      setMeldung(nachricht(ursache));
+    }
+  }
+
   return (
-    <div className="ueber setup-screen">
-      <div className="setup-stage">
+    <div className="ueber setup-overlay">
+      <div className="setup-content" role="dialog" aria-modal="true" aria-labelledby="setup-title">
         <div className="setup-art" aria-hidden="true">
-          <div className="setup-pixels">
-            {setupPixels.map(({ x, y }, index) => (
-              <span
-                key={`${x}-${y}`}
-                style={{ gridColumn: x + 1, gridRow: y + 1, "--pixel-step": index % 11 } as CSSProperties}
-              />
-            ))}
-          </div>
+          <div className="setup-art-glow setup-art-glow-a" />
+          <div className="setup-art-glow setup-art-glow-b" />
+          <div className="setup-art-curve" />
         </div>
         <section className="setup-card" aria-labelledby="setup-title">
           <h1 id="setup-title">jichi einrichten</h1>
@@ -140,31 +154,58 @@ function Einrichtung({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void verbinden()}
               placeholder="Dein Name"
               autoComplete="off"
             />
           </label>
 
-          <label className="feld">
-            <span>API-Schlüssel</span>
-            <input
-              type="password"
-              autoFocus
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void verbinden()}
-              placeholder="Schlüssel eingeben"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
+          {agentFehlt && (
+            <div className="setup-programm" role="group" aria-label="Programm">
+              <div>
+                <strong>jichi wurde nicht gefunden</strong>
+                <p>{r?.agent ?? (agent.config?.program && agent.config.program !== "jichi"
+                  ? `${shortPath(agent.config.program, 48)} ist nicht ausführbar.`
+                  : "Wähle die gebaute Programmdatei aus.")}</p>
+              </div>
+              <button type="button" className="knopf" onClick={() => void programmWaehlen()}>
+                Auswählen …
+              </button>
+            </div>
+          )}
 
-          <button className="knopf haupt" disabled={laeuft} onClick={() => void verbinden()}>
-            {laeuft ? "Wird geprüft …" : "Verbinden"}
+          {!pruefenStattEingeben && (
+            <label className="feld">
+              <span>API-Schlüssel</span>
+              <input
+                type="password"
+                autoFocus
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void verbinden()}
+                placeholder="Schlüssel eingeben"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+          )}
+
+          <button className="knopf haupt" disabled={laeuft || agentFehlt} onClick={() => void verbinden()}>
+            {laeuft ? "Wird geprüft …" : pruefenStattEingeben ? "Erneut prüfen" : "Verbinden"}
           </button>
 
           {meldung && <p className="setup-message" role="status">{meldung}</p>}
-          <Bericht bericht={bericht} />
+          {snap.setupHold && (
+            <>
+              <p className="setup-message fehler" role="alert">
+                Der Agent meldet Fehler. Ist der Schlüssel richtig und der Server erreichbar?
+              </p>
+              <Bericht bericht={snap.health} />
+              <button type="button" className="knopf-text" onClick={() => agent.finishSetup()}>
+                Trotzdem fortfahren
+              </button>
+            </>
+          )}
 
           <p className="setup-sicherheit">
             Dein Schlüssel wird auf diesem Gerät gespeichert und ist nur für dein
@@ -209,6 +250,16 @@ function Seitenleiste({
   const [loescht, setLoescht] = useState(false);
   const [loeschfehler, setLoeschfehler] = useState<string | null>(null);
   const abbrechen = useRef<HTMLButtonElement>(null);
+  const [wechselFehler, setWechselFehler] = useState<string | null>(null);
+
+  async function wechseln(aktion: () => Promise<void>) {
+    setWechselFehler(null);
+    try {
+      await aktion();
+    } catch (ursache) {
+      setWechselFehler(nachricht(ursache));
+    }
+  }
   const gefunden = useMemo(() => {
     const begriff = suche.trim().toLowerCase();
     if (!begriff) return snap.sessions;
@@ -260,12 +311,13 @@ function Seitenleiste({
           />
         </div>
 
-        <button className="zeile" onClick={() => void agent.newSession()}>
+        <button className="zeile" disabled={!snap.canSwitch} onClick={() => void wechseln(() => agent.newSession())}>
           <Plus size={14} />
           <span>Neuer Chat</span>
-          <kbd>⌘N</kbd>
+          <kbd>{kurz("N")}</kbd>
         </button>
 
+        {wechselFehler && <div className="leer-hinweis fehler" role="alert">{wechselFehler}</div>}
         <div className="gruppe">Sitzungen</div>
         {gefunden.length === 0 ? (
           <div className="leer-hinweis">
@@ -277,12 +329,14 @@ function Seitenleiste({
               <button
                 className="sitzung-oeffnen"
                 title={`${s.title}\n${s.workspace ?? ""}\n${relativeTime(s.modified)}`}
-                onClick={() => void agent.loadSession(s.id)}
+                disabled={!snap.canSwitch && s.id !== snap.sessionId}
+                onClick={() => s.id !== snap.sessionId && void wechseln(() => agent.loadSession(s.id))}
               >
                 <span>{s.title}</span>
               </button>
               <button
                 className="sitzung-loeschen"
+                disabled={!snap.canSwitch}
                 aria-label={`Chat ${s.title} löschen`}
                 title="Chat löschen"
                 onClick={() => { setLoeschfehler(null); setZuLoeschen(s); }}
@@ -324,41 +378,145 @@ function Seitenleiste({
 
 // ── Verlauf ──────────────────────────────────────────────────────────────────
 
-function Werkzeug({ eintrag }: { eintrag: ToolItem }) {
-  const [offen, setOffen] = useState(false);
-  const inhalt = [
-    eintrag.output,
-    ...eintrag.diffs.map((d) => `--- ${d.path}\n${d.newText}`),
-    eintrag.truncated ? "\n… gekürzt" : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const lage =
-    eintrag.status === "completed" ? "fertig" : eintrag.status === "failed" ? "fehlgeschlagen" : "";
-
+/** Die Ausgabe eines laufenden Befehls. Folgt dem Ende, solange man unten steht. */
+function Terminalausgabe({ view }: { view: TerminalView }) {
+  const box = useRef<HTMLPreElement>(null);
+  const unten = useRef(true);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && unten.current) el.scrollTop = el.scrollHeight;
+  }, [view.output]);
   return (
-    <div className={`werkzeug ${lage}`}>
-      <button
-        className="werkzeug-kopf"
-        onClick={() => setOffen((o) => !o)}
-        disabled={!inhalt}
-        aria-expanded={offen}
+    <div className="terminal">
+      <pre
+        ref={box}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          unten.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
       >
-        <Wrench size={13} />
-        <span className="werkzeug-name">{eintrag.title}</span>
-        <span className="werkzeug-lage">
-          {toolKindLabel(eintrag.toolKind)} · {toolStatusLabel(eintrag.status)}
-        </span>
-        {inhalt ? offen ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : null}
-      </button>
-      {offen && inhalt && <pre>{inhalt}</pre>}
+        {view.truncated && <span className="terminal-gekuerzt">… ältere Ausgabe gekürzt{"\n"}</span>}
+        {view.output || (view.exit ? "" : "…")}
+      </pre>
+      {view.exit && (
+        <div className={`terminal-ende${view.exit.exitCode === 0 ? " ok" : " fehler"}`}>
+          {view.exit.exitCode === 0
+            ? "beendet"
+            : view.exit.signal !== null
+              ? `abgebrochen (Signal ${view.exit.signal})`
+              : `beendet mit Code ${view.exit.exitCode ?? "?"}`}
+        </div>
+      )}
     </div>
   );
 }
 
-function Eintrag({ eintrag }: { eintrag: TranscriptItem }) {
-  if (eintrag.kind === "tool") return <Werkzeug eintrag={eintrag} />;
+function Werkzeug({ eintrag, snap }: { eintrag: ToolItem; snap: Snapshot }) {
+  const laeuft = eintrag.status === "in_progress" || eintrag.status === "pending";
+  const terminal = eintrag.terminalId ? snap.terminals[eintrag.terminalId] : undefined;
+  // Ein laufender Befehl klappt von selbst auf: dafür ist die Live-Ausgabe da.
+  const [offen, setOffen] = useState<boolean | null>(null);
+  const aufgeklappt = offen ?? (!!terminal && laeuft);
+  const text = [eintrag.output, eintrag.truncated ? "… gekürzt" : ""].filter(Boolean).join("\n");
+  const hatArgumente = eintrag.rawInput !== undefined && eintrag.rawInput !== null;
+  const hatInhalt = !!text || !!terminal || hatArgumente;
+
+  const lage = eintrag.status === "completed" ? "fertig" : eintrag.status === "failed" ? "fehlgeschlagen" : "";
+
+  return (
+    <div className={`werkzeug ${lage}${laeuft ? " laeuft" : ""}`}>
+      <button
+        className="werkzeug-kopf"
+        onClick={() => setOffen(!aufgeklappt)}
+        disabled={!hatInhalt}
+        aria-expanded={aufgeklappt}
+      >
+        {eintrag.toolKind === "execute" ? <Terminal size={13} /> : <Wrench size={13} />}
+        <span className="werkzeug-name">{eintrag.title}</span>
+        <span className="werkzeug-lage">
+          {toolKindLabel(eintrag.toolKind)} · {toolStatusLabel(eintrag.status)}
+        </span>
+        {hatInhalt ? aufgeklappt ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : null}
+      </button>
+      {aufgeklappt && (
+        <div className="werkzeug-inhalt">
+          {hatArgumente && (
+            <Vorschau rawInput={eintrag.rawInput} cacheKey={eintrag.toolCallId} live={laeuft} />
+          )}
+          {terminal ? <Terminalausgabe view={terminal} /> : text && <pre className="werkzeug-ausgabe">{text}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Unter einer fertigen Antwort: kopieren, noch einmal fragen, wann. */
+function Aktionen({ text, frage, at, snap }: { text: string; frage: string | null; at?: number; snap: Snapshot }) {
+  const [kopiert, setKopiert] = useState(false);
+  const [, tick] = useState(0);
+  // „vor 3 Min.“ soll nicht stehen bleiben.
+  useEffect(() => {
+    if (!at) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [at]);
+
+  async function kopieren() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setKopiert(true);
+      setTimeout(() => setKopiert(false), 1400);
+    } catch {
+      /* ohne Zwischenablage bleibt es still */
+    }
+  }
+
+  return (
+    <div className="aktionen">
+      <button type="button" onClick={() => void kopieren()} aria-label="Antwort kopieren" title="Kopieren">
+        {kopiert ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+      {frage && (
+        <button
+          type="button"
+          disabled={!snap.canSend}
+          onClick={() => void agent.send(frage).catch(() => {})}
+          aria-label="Noch einmal fragen"
+          title="Noch einmal fragen"
+        >
+          <RotateCcw size={14} />
+        </button>
+      )}
+      {at && (
+        <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString("de-DE")}>
+          {relativeTime(at / 1000)}
+        </time>
+      )}
+    </div>
+  );
+}
+
+/** Solange jichi arbeitet: das Zeichen in Bewegung, und wie lange schon. */
+function Arbeitet({ snap }: { snap: Snapshot }) {
+  const start = useRef(Date.now());
+  const [jetzt, setJetzt] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setJetzt(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const s = Math.max(0, Math.round((jetzt - start.current) / 1000));
+  const was = snap.status === "starting" ? "startet" : snap.status === "cancelling" ? "bricht ab" : "arbeitet";
+  return (
+    <div className="arbeitet" role="status" aria-live="polite">
+      <Marke size={16} animiert />
+      <span>jichi {was} …</span>
+      {s >= 3 && <span className="arbeitet-zeit">{s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`}</span>}
+    </div>
+  );
+}
+
+function Eintrag({ eintrag, snap }: { eintrag: TranscriptItem; snap: Snapshot }) {
+  if (eintrag.kind === "tool") return <Werkzeug eintrag={eintrag} snap={snap} />;
 
   if (eintrag.kind === "notice") {
     return (
@@ -369,29 +527,60 @@ function Eintrag({ eintrag }: { eintrag: TranscriptItem }) {
   if (eintrag.role === "user") {
     return (
       <div className="nachricht vom-nutzer">
-        <div>{eintrag.text}</div>
+        <div>
+          {eintrag.images?.length ? (
+            <div className="nachricht-bilder">
+              {eintrag.images.map((src, i) => (
+                <img key={i} src={src} alt={`Bild ${i + 1}`} />
+              ))}
+            </div>
+          ) : null}
+          {eintrag.files?.length ? (
+            <div className="nachricht-dateien">
+              {eintrag.files.map((f) => (
+                <span key={f}>
+                  <FileText size={12} /> {f}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {eintrag.text}
+        </div>
       </div>
     );
   }
 
+  if (eintrag.role === "thought") {
+    return <div className={`nachricht gedanke${eintrag.streaming ? " schreibt" : ""}`}>{eintrag.text}</div>;
+  }
+
   return (
-    <div
-      className={`nachricht ${eintrag.role === "thought" ? "gedanke" : "vom-agenten"}${
-        eintrag.streaming ? " schreibt" : ""
-      }`}
-    >
-      {eintrag.text}
+    <div className={`nachricht vom-agenten${eintrag.streaming ? " schreibt" : ""}`}>
+      <Markdown text={eintrag.text} />
     </div>
   );
 }
 
 function Rueckfrage({ snap }: { snap: Snapshot }) {
   const frage = snap.permission;
+  const kasten = useRef<HTMLDivElement>(null);
+  // Der Agent wartet — die Frage muss sichtbar sein, auch wenn der Benutzer
+  // gerade weiter oben liest.
+  useEffect(() => {
+    if (frage) kasten.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [frage]);
   if (!frage) return null;
+  // Die vollen Argumente kamen mit dem `tool_call` davor.
+  const aufruf = snap.transcript.find(
+    (i): i is ToolItem => i.kind === "tool" && i.toolCallId === frage.toolCallId,
+  );
   return (
-    <div className="rueckfrage">
+    <div className="rueckfrage" ref={kasten} role="alertdialog" aria-label="jichi bittet um Erlaubnis">
       <div className="rueckfrage-titel">jichi bittet um Erlaubnis</div>
       <code>{frage.title}</code>
+      <div className="rueckfrage-vorschau">
+        <Vorschau rawInput={aufruf?.rawInput} cacheKey={frage.toolCallId} live />
+      </div>
       <div className="rueckfrage-aktionen">
         {frage.options.map((o) => (
           <button
@@ -429,40 +618,84 @@ function Verlauf({ snap }: { snap: Snapshot }) {
     if (el) amEnde.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }
 
+  const t = snap.transcript;
+  const laeuft = snap.status === "busy" || snap.status === "starting" || snap.status === "cancelling";
   return (
     <div className="verlauf" ref={box} onScroll={beobachten}>
       <div className="spalte">
-        {snap.transcript.map((e) => (
-          <Eintrag key={e.id} eintrag={e} />
-        ))}
+        {t.map((e, i) => {
+          // Aktionen nur unter der letzten Antwort eines Zuges, wenn sie fertig ist.
+          const bis = naechsteFrage(t, i);
+          const spaeter = t.slice(i + 1, bis).some((n) => n.kind === "message" && n.role === "agent");
+          const imLaufendenZug = laeuft && bis === t.length;
+          const ende =
+            e.kind === "message" && e.role === "agent" && !e.streaming && !spaeter && !imLaufendenZug;
+          const frage = ende ? letzteFrage(t, i) : null;
+          return (
+            <div key={e.id}>
+              <Eintrag eintrag={e} snap={snap} />
+              {ende && e.kind === "message" && (
+                <Aktionen text={e.text} frage={frage} at={e.at} snap={snap} />
+              )}
+            </div>
+          );
+        })}
         <Rueckfrage snap={snap} />
+        {laeuft && !snap.permission && <Arbeitet key={snap.sessionId ?? "x"} snap={snap} />}
       </div>
     </div>
   );
 }
 
-function Leer({ snap, frage }: { snap: Snapshot; frage: (text: string) => void }) {
-  const name = readPreferences().name;
+/** Index der nächsten eigenen Nachricht nach `i`, sonst das Ende. */
+function naechsteFrage(t: readonly TranscriptItem[], i: number): number {
+  const j = t.findIndex((n, k) => k > i && n.kind === "message" && n.role === "user");
+  return j < 0 ? t.length : j;
+}
+
+/** Der Text der eigenen Nachricht, auf die die Antwort bei `i` folgt — ohne Anhänge. */
+function letzteFrage(t: readonly TranscriptItem[], i: number): string | null {
+  for (let k = i - 1; k >= 0; k -= 1) {
+    const n = t[k];
+    if (n.kind === "message" && n.role === "user") {
+      return n.text && !n.images?.length && !n.files?.length ? n.text : null;
+    }
+  }
+  return null;
+}
+
+function Leer({
+  snap,
+  name,
+  frage,
+}: {
+  snap: Snapshot;
+  name: string;
+  frage: (text: string) => void;
+}) {
+  // Ohne Projekt würde „Tests ausführen“ im Heimatverzeichnis laufen.
+  const projektfrage = snap.hasProject && snap.canSend;
   return (
     <div className="leer">
       <div className="leer-mitte">
+        <Marke size={40} className="leer-marke" />
         <h2 className="leer-titel">{name ? `Hallo, ${name}.` : "Womit fangen wir an?"}</h2>
         <p className="leer-text">
-          {snap.cwd ? shortPath(snap.cwd, 60) : "Noch kein Projekt geöffnet."}
+          {snap.hasProject && snap.cwd ? shortPath(snap.cwd, 60) : "Noch kein Projekt geöffnet."}
         </p>
 
-        {!snap.cwd && (
-          <button className="vorschlag" onClick={() => void agent.pickWorkspace()}>
+        {!snap.hasProject && (
+          <button className="vorschlag" disabled={!snap.canSwitch} onClick={() => void agent.pickWorkspace().catch(() => {})}>
             <FolderOpen size={15} />
             Projekt öffnen
             <small>Ordner wählen</small>
           </button>
         )}
-        <button className="vorschlag" onClick={() => frage("Erklär mir dieses Projekt.")}>
+        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage("Erklär mir dieses Projekt.")}>
           <FileText size={15} />
           Projekt erklären
         </button>
-        <button className="vorschlag" onClick={() => frage("Führe die Tests aus.")}>
+        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage("Führe die Tests aus.")}>
           <Terminal size={15} />
           Tests ausführen
         </button>
@@ -473,67 +706,16 @@ function Leer({ snap, frage }: { snap: Snapshot; frage: (text: string) => void }
 
 // ── Eingabe ──────────────────────────────────────────────────────────────────
 
-function Eingabe({ snap }: { snap: Snapshot }) {
-  const [text, setText] = useState("");
-  const feld = useRef<HTMLTextAreaElement>(null);
-  const [fehler, setFehler] = useState<string | null>(null);
-
-  const anpassen = useCallback(() => {
-    const el = feld.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
-  }, []);
-
-  useEffect(anpassen, [text, anpassen]);
-
-  function senden() {
-    const inhalt = text.trim();
-    if (!inhalt || !snap.canSend) return;
-    setText("");
-    setFehler(null);
-    void agent.send(inhalt).catch((ursache) => {
-      setText(inhalt); // nicht verlieren, wenn der Start scheitert
-      setFehler(ursache instanceof Error ? ursache.message : String(ursache));
-    });
-  }
-
-  return (
-    <div className="eingabe">
-      <div className="spalte">
-        <div className="eingabe-feld">
-          <textarea
-            ref={feld}
-            rows={1}
-            value={text}
-            placeholder="Frag jichi …"
-            readOnly={!snap.canSend}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                senden();
-              }
-            }}
-          />
-          <button
-            className="senden"
-            disabled={!snap.canSend || !text.trim()}
-            onClick={senden}
-            aria-label="Senden"
-          >
-            <ArrowUp size={15} />
-          </button>
-        </div>
-        <div className="eingabe-fuss">
-          {fehler ?? "Enter senden · Umschalt+Enter neue Zeile"}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Einstellungen ────────────────────────────────────────────────────────────
+
+const MODELLART: Record<string, string> = {
+  chat: "Chat",
+  embed: "Einbettung",
+  rerank: "Rangfolge",
+  transcribe: "Sprache → Text",
+  speech: "Text → Sprache",
+  image: "Bild",
+};
 
 function Einstellungen({
   snap,
@@ -582,13 +764,16 @@ function Einstellungen({
     }
   }
 
-  function speichern() {
-    if (config) {
-      void agent
-        .setConfig({ ...config, args: parseArgs(args), env: agent.config?.env ?? [] })
-        .catch(() => {});
+  async function speichern() {
+    if (!config) return schliessen();
+    setVerbindungsFehler(null);
+    try {
+      // Der Kern startet nur neu, wenn sich am Start etwas geändert hat.
+      await agent.setConfig({ ...config, args: parseArgs(args), env: agent.config?.env ?? [] });
+      schliessen();
+    } catch (ursache) {
+      setVerbindungsFehler(nachricht(ursache));
     }
-    schliessen();
   }
 
   return (
@@ -672,6 +857,38 @@ function Einstellungen({
         </div>
 
         <div className="abschnitt">
+          <div className="abschnitt-kopf">
+            <h3>Verfügbare Modelle</h3>
+            <button
+              type="button"
+              className="knopf-klein knopf-symbol"
+              disabled={!r?.keyStored || snap.gateway?.loading}
+              onClick={() => void agent.refreshGateway()}
+              aria-label="Liste neu laden"
+              title="Liste neu laden"
+            >
+              <RefreshCw size={13} className={snap.gateway?.loading ? "dreht" : ""} />
+            </button>
+          </div>
+          <p className="abschnitt-text">
+            Was dein Schlüssel am Gateway erreicht. Gezeigt werden nur die freien Modelle der JLU
+            (<code>jlu/…</code>) — Modelle anderer Anbieter kosten Geld und erscheinen hier nicht.
+          </p>
+          {snap.gateway?.error && <p className="zugang-fehler" role="alert">{snap.gateway.error}</p>}
+          {!snap.gateway && <p className="abschnitt-text">Noch nicht abgefragt.</p>}
+          {snap.gateway && snap.gateway.models.length > 0 && (
+            <ul className="modellliste">
+              {snap.gateway.models.map((m) => (
+                <li key={m.id}>
+                  <span className="modell-id">{m.id}</span>
+                  <span className={`modell-art ${m.kind}`}>{MODELLART[m.kind]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="abschnitt">
           <details>
             <summary>Erweitert</summary>
 
@@ -712,7 +929,7 @@ function Einstellungen({
           <button className="knopf" onClick={schliessen}>
             Schließen
           </button>
-          <button className="knopf haupt" onClick={speichern}>
+          <button className="knopf haupt" onClick={() => void speichern()}>
             Speichern
           </button>
         </div>
@@ -747,7 +964,8 @@ function App() {
     function tasten(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
         e.preventDefault();
-        void agent.newSession();
+        if (!agent.getSnapshot().canSwitch) return;
+        void agent.newSession().catch(() => {});
       }
       if (e.key === "Escape") setEinstellungen(false);
     }
@@ -755,7 +973,11 @@ function App() {
     return () => window.removeEventListener("keydown", tasten);
   }, []);
 
-  if (snap.needsSetup) return <Einrichtung prefs={prefs} setPrefs={setPrefs} />;
+  // Wird die Einrichtung nötig (Schlüssel entfernt), schliessen die Einstellungen
+  // — sonst sprängen sie danach ungefragt wieder auf.
+  useEffect(() => {
+    if (snap.needsSetup) setEinstellungen(false);
+  }, [snap.needsSetup]);
 
   const punkt =
     snap.status === "ready"
@@ -767,7 +989,8 @@ function App() {
           : "";
 
   return (
-    <div className={`app layout-${prefs.layout}`}>
+    <>
+      <div className={`app layout-${prefs.layout}`} inert={snap.needsSetup} aria-hidden={snap.needsSetup}>
       <Seitenleiste snap={snap} oeffneEinstellungen={() => setEinstellungen(true)} />
 
       <main className="haupt">
@@ -778,19 +1001,14 @@ function App() {
           </div>
 
           <div className="kopf-rechts" data-tauri-drag-region>
-            {snap.canCancel && (
-              <button className="knopf-klein abbrechen" onClick={() => void agent.cancel()}>
-                <X size={13} />
-                Abbrechen
-              </button>
-            )}
             <button
               className="knopf-klein"
-              onClick={() => void agent.pickWorkspace()}
-              title={snap.cwd ?? "Projektordner wählen"}
+              disabled={!snap.canSwitch}
+              onClick={() => void agent.pickWorkspace().catch(() => {})}
+              title={snap.hasProject && snap.cwd ? snap.cwd : "Projektordner wählen"}
             >
               <FolderOpen size={13} />
-              <span className="pfad">{shortPath(snap.cwd, 34) || "Projekt öffnen"}</span>
+              <span className="pfad">{snap.hasProject ? shortPath(snap.cwd, 34) : "Projekt öffnen"}</span>
             </button>
             <button
               className="knopf-klein knopf-symbol"
@@ -808,7 +1026,7 @@ function App() {
         </header>
 
         {snap.transcript.length === 0 && !snap.permission ? (
-          <Leer snap={snap} frage={(t) => void agent.send(t)} />
+          <Leer snap={snap} name={prefs.name} frage={(t) => void agent.send(t).catch(() => {})} />
         ) : (
           <Verlauf snap={snap} />
         )}
@@ -816,7 +1034,7 @@ function App() {
         <Eingabe snap={snap} />
       </main>
 
-      {einstellungen && (
+      {einstellungen && !snap.needsSetup && (
         <Einstellungen
           snap={snap}
           prefs={prefs}
@@ -824,12 +1042,14 @@ function App() {
           schliessen={() => setEinstellungen(false)}
         />
       )}
-    </div>
+      </div>
+      {snap.needsSetup && <Einrichtung snap={snap} prefs={prefs} setPrefs={setPrefs} />}
+    </>
   );
 }
 
 // Nur auf macOS schwebt die Ampel über dem Inhalt und braucht Platz.
-if (/Mac/i.test(navigator.userAgent)) document.documentElement.classList.add("mac");
+if (IS_MAC) document.documentElement.classList.add("mac");
 
 const wurzel = document.getElementById("root");
 if (wurzel) createRoot(wurzel).render(<App />);

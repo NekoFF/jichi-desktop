@@ -18,7 +18,13 @@ import type {
   ToolKind,
   ToolStatus,
 } from "./protocol.ts";
-import type { DoctorReport, Readiness, StoredSession } from "./transport.ts";
+import type {
+  DoctorReport,
+  GatewayModel,
+  Readiness,
+  StoredSession,
+  TermExit,
+} from "./transport.ts";
 
 /**
  * Obergrenze für die gespeicherte Ausgabe eines Werkzeugs.
@@ -44,6 +50,12 @@ export interface MessageItem {
   text: string;
   /** Solange `true`, kann Text nachwachsen — die Oberfläche darf einen Cursor zeigen. */
   streaming: boolean;
+  /** Mitgeschickte Bilder als `data:`-Verweise, nur bei eigenen Nachrichten. */
+  images?: string[];
+  /** Namen mitgeschickter Dateien, nur bei eigenen Nachrichten. */
+  files?: string[];
+  /** Wann die Nachricht begann (ms). Fehlt bei Wiedergaben aus dem Speicher. */
+  at?: number;
 }
 
 export interface ToolDiff {
@@ -63,6 +75,25 @@ export interface ToolItem {
   truncated: boolean;
   diffs: ToolDiff[];
   rawInput?: unknown;
+  /** Läuft der Befehl in einem Terminal dieser Anwendung, dessen Kennung. */
+  terminalId?: string;
+}
+
+/** Was ein Terminal des Agenten bisher geschrieben hat. */
+export interface TerminalView {
+  output: string;
+  truncated: boolean;
+  exit: TermExit | null;
+}
+
+/** Wie der Agent arbeitet. `auto` führt Änderungen ohne Rückfrage aus. */
+export type AgentMode = "chat" | "plan" | "auto";
+
+export interface GatewayState {
+  base: string | null;
+  models: GatewayModel[];
+  loading: boolean;
+  error: string | null;
 }
 
 export interface NoticeItem {
@@ -103,13 +134,38 @@ export interface Snapshot {
   readiness: Readiness | null;
   /** Der letzte Selbstbericht des Agenten (`doctor`), oder `null`. */
   health: DoctorReport | null;
+  /** Ausgabe der Terminals, nach Kennung. Getrennt vom Verlauf, weil sie je Zeile wächst. */
+  terminals: Readonly<Record<string, TerminalView>>;
+  /** Gewähltes Modell (`--model`), `null` für das der Konfiguration. */
+  model: string | null;
+  mode: AgentMode;
+  /** Was der Schlüssel am Gateway erreicht, `null` solange nicht gefragt. */
+  gateway: GatewayState | null;
+  /** Das aktive Modell liest Bilder — nur dann dürfen welche mit. */
+  canAttachImages: boolean;
   /**
    * Der erste Start ist nötig. Bleibt `false`, solange `readiness` aussteht —
    * sonst blitzt der Einrichtungsbildschirm bei jedem Programmstart kurz auf.
    */
   needsSetup: boolean;
+  /**
+   * Die Einrichtung hat einen Schlüssel abgelegt, aber `doctor` meldet Fehler.
+   * Dann bleibt der Einrichtungsbildschirm offen, statt mit einem Zugang in die
+   * Anwendung zu führen, der beim ersten Zug scheitert.
+   */
+  setupHold: boolean;
+  /** Das Heimatverzeichnis — dort steht der Agent, solange kein Projekt offen ist. */
+  home: string | null;
+  /** Ein Projektordner ist gewählt (nicht bloss das Heimatverzeichnis). */
+  hasProject: boolean;
   canSend: boolean;
   canCancel: boolean;
+  /**
+   * Chat wechseln, neuen beginnen, Projekt öffnen. Nicht während eines Zuges:
+   * jichi liest in dieser Zeit keine anderen Anfragen, und eine neue Sitzung
+   * würde nie beantwortet.
+   */
+  canSwitch: boolean;
 }
 
 export function emptySnapshot(): Snapshot {
@@ -126,9 +182,19 @@ export function emptySnapshot(): Snapshot {
     diagnostics: [],
     readiness: null,
     health: null,
+    terminals: {},
+    model: null,
+    mode: "chat",
+    gateway: null,
+    canAttachImages: false,
     needsSetup: false,
-    canSend: true,
+    setupHold: false,
+    home: null,
+    hasProject: false,
+    // Erst wenn die Bereitschaft bekannt ist (siehe `withDerived`).
+    canSend: false,
     canCancel: false,
+    canSwitch: true,
   };
 }
 
@@ -141,20 +207,39 @@ export function emptySnapshot(): Snapshot {
  * Berechtigungsfrage, denn genau dort wartet der Agent am längsten.
  */
 export function withDerived(state: Snapshot): Snapshot {
-  const needsSetup = state.readiness?.needsSetup ?? false;
+  // Solange die Bereitschaft aussteht, ist nichts bekannt — also auch nicht,
+  // dass gesendet werden darf.
+  const known = state.readiness !== null;
+  const needsSetup = (state.readiness?.needsSetup ?? false) || state.setupHold;
   // Solange etwas fehlt, darf nicht gesendet werden: ein Start ohne Schlüssel
-  // oder ohne Konfiguration sieht aus wie ein Defekt und ist keiner.
-  const canSend = !needsSetup && (state.status === "ready" || state.status === "offline");
+  // oder ohne Konfiguration sieht aus wie ein Defekt und ist keiner. Nach
+  // einem Fehler darf es erneut versucht werden.
+  const canSend =
+    known &&
+    !needsSetup &&
+    state.permission === null &&
+    (state.status === "ready" || state.status === "offline" || state.status === "error");
   const canCancel =
     state.status === "busy" || state.status === "cancelling" || state.permission !== null;
+  const canSwitch =
+    !needsSetup &&
+    state.permission === null &&
+    state.status !== "busy" &&
+    state.status !== "cancelling" &&
+    state.status !== "starting";
+  const hasProject = !!state.cwd && state.cwd !== state.home;
+  const canAttachImages = state.capabilities?.promptCapabilities?.image === true;
   if (
+    canAttachImages === state.canAttachImages &&
     canSend === state.canSend &&
     canCancel === state.canCancel &&
+    canSwitch === state.canSwitch &&
+    hasProject === state.hasProject &&
     needsSetup === state.needsSetup
   ) {
     return state;
   }
-  return { ...state, canSend, canCancel, needsSetup };
+  return { ...state, canSend, canCancel, canSwitch, hasProject, needsSetup, canAttachImages };
 }
 
 // ── Inhalte zu Text ──────────────────────────────────────────────────────────
@@ -190,14 +275,23 @@ export function blockToText(block: ContentBlock | undefined | null): string {
 export function splitToolContent(entries: ToolCallContent[] | undefined): {
   text: string;
   diffs: ToolDiff[];
+  terminalId?: string;
 } {
   if (!Array.isArray(entries)) return { text: "", diffs: [] };
 
   const parts: string[] = [];
   const diffs: ToolDiff[] = [];
+  let terminalId: string | undefined;
 
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
+
+    // Ein Terminal ist kein Text: seine Ausgabe kommt eigens (siehe `terminals`).
+    const block = (entry.content ?? entry) as { type?: string; terminalId?: unknown };
+    if (block.type === "terminal" && typeof block.terminalId === "string") {
+      terminalId = block.terminalId;
+      continue;
+    }
 
     if (entry.type === "diff" && typeof entry.path === "string") {
       diffs.push({
@@ -218,7 +312,7 @@ export function splitToolContent(entries: ToolCallContent[] | undefined): {
     }
   }
 
-  return { text: parts.filter(Boolean).join("\n"), diffs };
+  return { text: parts.filter(Boolean).join("\n"), diffs, terminalId };
 }
 
 function capped(text: string): { output: string; truncated: boolean } {
@@ -240,6 +334,7 @@ export function appendChunk(
   role: MessageRole,
   text: string,
   newId: string,
+  at?: number,
 ): readonly TranscriptItem[] {
   if (!text) return items;
 
@@ -248,7 +343,7 @@ export function appendChunk(
     const grown: MessageItem = { ...last, text: last.text + text };
     return [...items.slice(0, -1), grown];
   }
-  const fresh: MessageItem = { kind: "message", id: newId, role, text, streaming: true };
+  const fresh: MessageItem = { kind: "message", id: newId, role, text, streaming: true, at };
   return [...items, fresh];
 }
 
@@ -258,8 +353,9 @@ export function pushMessage(
   role: MessageRole,
   text: string,
   newId: string,
+  at?: number,
 ): readonly TranscriptItem[] {
-  return [...items, { kind: "message", id: newId, role, text, streaming: false }];
+  return [...items, { kind: "message", id: newId, role, text, streaming: false, at }];
 }
 
 export function pushNotice(
@@ -292,9 +388,10 @@ export function applyToolCall(
   update: ToolCallUpdate,
   newId: string,
 ): readonly TranscriptItem[] {
-  const { text, diffs } = splitToolContent(update.content);
+  const { text, diffs, terminalId } = splitToolContent(update.content);
   const { output, truncated } = capped(text);
   const item: ToolItem = {
+    terminalId,
     kind: "tool",
     id: newId,
     toolCallId: update.toolCallId,
@@ -333,7 +430,7 @@ export function applyToolUpdate(
   const at = items.findIndex(
     (i) => i.kind === "tool" && i.toolCallId === update.toolCallId,
   );
-  const { text, diffs } = splitToolContent(update.content);
+  const { text, diffs, terminalId } = splitToolContent(update.content);
 
   if (at < 0) {
     return applyToolCall(
@@ -362,8 +459,37 @@ export function applyToolUpdate(
     output,
     truncated: existing.truncated || truncated,
     diffs: diffs.length ? [...existing.diffs, ...diffs] : existing.diffs,
+    terminalId: terminalId ?? existing.terminalId,
   };
   return [...items.slice(0, at), merged, ...items.slice(at + 1)];
+}
+
+/**
+ * Ausgabe eines Terminals anhängen. Gekappt wird hier am **Anfang**, anders als
+ * bei Werkzeugausgaben: bei einem laufenden Befehl zählt, was er zuletzt schrieb.
+ */
+export function appendTerminal(
+  terminals: Readonly<Record<string, TerminalView>>,
+  terminalId: string,
+  chunk: string,
+): Readonly<Record<string, TerminalView>> {
+  const prev = terminals[terminalId] ?? { output: "", truncated: false, exit: null };
+  let output = prev.output + chunk;
+  let truncated = prev.truncated;
+  if (output.length > MAX_TOOL_OUTPUT) {
+    output = output.slice(output.length - MAX_TOOL_OUTPUT);
+    truncated = true;
+  }
+  return { ...terminals, [terminalId]: { ...prev, output, truncated } };
+}
+
+export function finishTerminal(
+  terminals: Readonly<Record<string, TerminalView>>,
+  terminalId: string,
+  exit: TermExit,
+): Readonly<Record<string, TerminalView>> {
+  const prev = terminals[terminalId] ?? { output: "", truncated: false, exit: null };
+  return { ...terminals, [terminalId]: { ...prev, exit } };
 }
 
 /** Ein noch laufendes Werkzeug kann nach einem Abbruch nicht mehr fertig werden. */

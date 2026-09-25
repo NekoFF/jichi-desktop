@@ -6,8 +6,8 @@
  * — das eine ist Technik und gehört hinter „Erweitert“, das andere sieht jeder
  * Benutzer auf der ersten Seite der Einstellungen.
  *
- * Kein Geheimnis geht hier hinein. Der API-Schlüssel liegt im Schlüsselbund des
- * Betriebssystems, nicht in dieser Ablage.
+ * Kein Geheimnis geht hier hinein. Der API-Schlüssel liegt in der geschützten
+ * Ablage der Rust-Seite (eine 0600-Datei), nicht in dieser.
  */
 
 export type Appearance = "system" | "light" | "dark";

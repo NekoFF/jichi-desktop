@@ -75,16 +75,35 @@ export class JsonRpcPeer {
     return this.#pending.size;
   }
 
-  async request<T>(method: string, params?: unknown): Promise<T> {
+  /**
+   * Eine Anfrage. `timeoutMs` nur für Anfragen, die schnell sein *müssen* —
+   * ein Zug darf dauern, ein Handschlag nicht. Ohne Frist wartet eine
+   * verschluckte Anfrage für immer, und die Oberfläche mit ihr.
+   */
+  async request<T>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
     const id = this.#nextId++;
     const line = JSON.stringify({ jsonrpc: "2.0", id, method, params });
 
     const answer = new Promise<T>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = () => timer !== undefined && clearTimeout(timer);
       this.#pending.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
+        resolve: (value) => {
+          done();
+          (resolve as (value: unknown) => void)(value);
+        },
+        reject: (reason) => {
+          done();
+          reject(reason);
+        },
         method,
       });
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          if (!this.#pending.delete(id)) return;
+          reject(new Error(`${method}: keine Antwort nach ${Math.round(timeoutMs / 1000)} Sekunden`));
+        }, timeoutMs);
+      }
     });
 
     try {
