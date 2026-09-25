@@ -15,7 +15,12 @@
 
 import {
   agent,
+  applyAppearance,
   formatArgs,
+  readPreferences,
+  writePreferences,
+  type Appearance,
+  type DoctorReport,
   parseArgs,
   permissionTone,
   relativeTime,
@@ -40,6 +45,7 @@ const ui = {
   statusText: need("status-text"),
   cwd: need("cwd-label"),
   cancel: need<HTMLButtonElement>("cancel-turn"),
+  openProject: need<HTMLButtonElement>("open-project"),
   transcript: need("transcript"),
   sessionList: need("session-list"),
   newChat: need<HTMLButtonElement>("new-chat"),
@@ -51,7 +57,18 @@ const ui = {
   cfgProgram: need<HTMLInputElement>("cfg-program"),
   cfgArgs: need<HTMLInputElement>("cfg-args"),
   cfgCwd: need<HTMLInputElement>("cfg-cwd"),
-  cfgKey: need<HTMLInputElement>("cfg-key"),
+  cfgName: need<HTMLInputElement>("cfg-name"),
+  cfgAppearance: need<HTMLSelectElement>("cfg-appearance"),
+  cfgConnection: need("cfg-connection"),
+  cfgCheck: need<HTMLButtonElement>("cfg-check"),
+  cfgForget: need<HTMLButtonElement>("cfg-forget"),
+  cfgChecks: need("cfg-checks"),
+  setup: need("setup"),
+  setupName: need<HTMLInputElement>("setup-name"),
+  setupKey: need<HTMLInputElement>("setup-key"),
+  setupGo: need<HTMLButtonElement>("setup-go"),
+  setupState: need("setup-state"),
+  setupChecks: need("setup-checks"),
   cfgHint: need("cfg-hint"),
   cfgDiag: need("cfg-diag"),
   cfgCancel: need<HTMLButtonElement>("cfg-cancel"),
@@ -226,6 +243,31 @@ function renderTranscript(snap: Snapshot): void {
   if (near) ui.transcript.scrollTop = ui.transcript.scrollHeight;
 }
 
+/** Den Selbstbericht des Agenten zeigen: Fehler zuerst, dann Warnungen. */
+function renderChecks(into: HTMLElement, report: DoctorReport | null): void {
+  into.replaceChildren();
+  if (!report) return;
+
+  const wichtig = report.checks.filter((c) => c.status !== "ok");
+  const zeile = (text: string, level: "info" | "warning" | "error") => {
+    const node = document.createElement("div");
+    node.className = `note${level === "error" ? " error" : ""}`;
+    node.textContent = text;
+    into.append(node);
+  };
+
+  zeile(
+    `${report.ok} Prüfungen bestanden` +
+      (report.warn ? `, ${report.warn} Hinweise` : "") +
+      (report.fail ? `, ${report.fail} fehlgeschlagen` : ""),
+    report.fail ? "error" : "info",
+  );
+  for (const check of wichtig.slice(0, 6)) {
+    zeile(`${check.status === "fail" ? "Fehler" : "Hinweis"}: ${check.label}`,
+      check.status === "fail" ? "error" : "warning");
+  }
+}
+
 function renderSessions(snap: Snapshot): void {
   ui.sessionList.replaceChildren();
   for (const session of snap.sessions) {
@@ -269,6 +311,22 @@ function render(): void {
   ui.prompt.readOnly = !snap.canSend;
 
   ui.cfgDiag.textContent = snap.diagnostics.join("\n") || "— noch nichts —";
+  ui.openProject.disabled = snap.needsSetup;
+
+  // Der erste Start deckt alles zu: ohne Schlüssel gibt es nichts zu sehen.
+  ui.setup.hidden = !snap.needsSetup;
+
+  const r = snap.readiness;
+  ui.cfgConnection.textContent = r
+    ? [
+        r.keyStored ? "● Schlüssel hinterlegt" : "○ kein Schlüssel",
+        r.config.exists ? `${r.config.models.length} Modell(e)` : "keine Konfiguration",
+        r.config.models[0]?.apiBase ?? "",
+        r.version ?? "",
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : "wird ermittelt …";
 
   renderSessions(snap);
   renderTranscript(snap);
@@ -315,23 +373,90 @@ ui.composer.addEventListener("submit", (event) => {
 ui.cancel.addEventListener("click", () => void agent.cancel().catch(report));
 ui.newChat.addEventListener("click", () => void agent.newSession().catch(report));
 
-// ── Einstellungen ────────────────────────────────────────────────────────────
+// ── Erster Start ─────────────────────────────────────────────────────────────
 
-const KEY_VAR = "JICHI_API_KEY";
+let prefs = readPreferences();
+applyAppearance(prefs.appearance);
+ui.setupName.value = prefs.name;
+
+ui.setupGo.addEventListener("click", () => {
+  const key = ui.setupKey.value;
+  if (!key.trim()) {
+    ui.setupState.textContent = "Bitte den API-Schlüssel eintragen.";
+    return;
+  }
+  ui.setupGo.disabled = true;
+  ui.setupState.textContent = "Schlüssel wird abgelegt und geprüft …";
+  renderChecks(ui.setupChecks, null);
+
+  prefs = { ...prefs, name: ui.setupName.value.trim() };
+  writePreferences(prefs);
+
+  void agent
+    .setup(key)
+    .then((report) => {
+      // Das Feld sofort leeren: der Schlüssel hat im Fenster nichts mehr zu suchen.
+      ui.setupKey.value = "";
+      renderChecks(ui.setupChecks, report);
+      ui.setupState.textContent = report.fail
+        ? "Der Agent meldet Fehler — siehe unten."
+        : "Verbunden.";
+    })
+    .catch((cause) => {
+      ui.setupState.textContent = cause instanceof Error ? cause.message : String(cause);
+    })
+    .finally(() => {
+      ui.setupGo.disabled = false;
+    });
+});
+
+ui.setupKey.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") ui.setupGo.click();
+});
+
+// ── Projekt öffnen ───────────────────────────────────────────────────────────
+
+ui.openProject.addEventListener("click", () => {
+  void agent.pickWorkspace().catch(report);
+});
+
+// ── Einstellungen ────────────────────────────────────────────────────────────
 
 function openSettings(): void {
   const config = agent.config;
   const snap = agent.getSnapshot();
+  ui.cfgName.value = prefs.name;
+  ui.cfgAppearance.value = prefs.appearance;
   ui.cfgProgram.value = config?.program ?? "";
   ui.cfgArgs.value = formatArgs(config?.args ?? []);
   ui.cfgCwd.value = config?.cwd ?? "";
-  ui.cfgKey.value = config?.env.find((e) => e.name === KEY_VAR)?.file ?? "";
-  ui.cfgHint.textContent = [
-    snap.agentVersion ? `Gefunden: ${snap.agentVersion}` : "Das Programm wurde noch nicht geprüft.",
-    "Der Schlüssel wird erst beim Start aus der Datei gelesen.",
-  ].join(" ");
+  ui.cfgHint.textContent =
+    snap.readiness?.agent ?? "Das Programm wurde auf diesem Rechner nicht gefunden.";
+  renderChecks(ui.cfgChecks, snap.health);
   ui.settings.hidden = false;
 }
+
+ui.cfgAppearance.addEventListener("change", () => {
+  prefs = { ...prefs, appearance: ui.cfgAppearance.value as Appearance };
+  writePreferences(prefs);
+  applyAppearance(prefs.appearance);
+});
+
+ui.cfgCheck.addEventListener("click", () => {
+  ui.cfgCheck.disabled = true;
+  void agent
+    .checkHealth()
+    .then((health) => renderChecks(ui.cfgChecks, health))
+    .catch(report)
+    .finally(() => {
+      ui.cfgCheck.disabled = false;
+    });
+});
+
+ui.cfgForget.addEventListener("click", () => {
+  closeSettings();
+  void agent.forgetKey().catch(report);
+});
 
 function closeSettings(): void {
   ui.settings.hidden = true;
@@ -347,16 +472,16 @@ document.addEventListener("keydown", (event) => {
 });
 
 ui.cfgSave.addEventListener("click", () => {
-  const keyFile = ui.cfgKey.value.trim();
-  const previous = agent.config;
+  prefs = { ...prefs, name: ui.cfgName.value.trim(), appearance: ui.cfgAppearance.value as Appearance };
+  writePreferences(prefs);
+  applyAppearance(prefs.appearance);
+
   const next: LaunchConfig = {
     program: ui.cfgProgram.value.trim(),
     args: parseArgs(ui.cfgArgs.value),
     cwd: ui.cfgCwd.value.trim(),
-    env: [
-      ...(previous?.env.filter((e) => e.name !== KEY_VAR) ?? []),
-      ...(keyFile ? [{ name: KEY_VAR, file: keyFile }] : []),
-    ],
+    // Der Schlüssel wird hier nicht angefasst: er liegt im Schlüsselbund.
+    env: agent.config?.env ?? [],
   };
   closeSettings();
   void agent.setConfig(next).catch(report);

@@ -9,13 +9,65 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 
-/** Eine Umgebungsvariable für den Agenten. `file` ist der Weg für Geheimnisse:
- *  diese Anwendung speichert nur den Pfad, gelesen wird erst beim Start. */
+/**
+ * Eine Umgebungsvariable für den Agenten.
+ *
+ * Für Geheimnisse ist `secret` gedacht: der Name eines Kontos im Schlüsselbund
+ * des Betriebssystems. Der Wert wird ausschließlich auf der Rust-Seite gelesen,
+ * im Moment des Starts — es gibt keinen Befehl, der ihn hierher zurückgibt.
+ * `file` und `value` bleiben für Rechner ohne Schlüsselbund.
+ */
 export interface EnvSpec {
   name: string;
+  secret?: string;
   value?: string;
   file?: string;
+}
+
+/** Ein Modell aus der Konfiguration des Agenten. */
+export interface ModelInfo {
+  name: string;
+  model: string;
+  apiBase: string | null;
+  apiKeyEnv: string | null;
+  roles: string[];
+}
+
+export interface ConfigReport {
+  path: string;
+  exists: boolean;
+  /** Gesetzt, wenn die Datei da ist, aber unlesbar. */
+  problem: string | null;
+  models: ModelInfo[];
+}
+
+/** Die eine Frage des ersten Starts: kann losgelegt werden? */
+export interface Readiness {
+  /** Voller Pfad zum Agenten, oder `null`, wenn er nicht gefunden wurde. */
+  agent: string | null;
+  version: string | null;
+  config: ConfigReport;
+  keyStored: boolean;
+  /** Name der Umgebungsvariablen, aus der der Agent seinen Schlüssel liest. */
+  keyEnv: string;
+  needsSetup: boolean;
+}
+
+/** Eine einzelne Prüfung aus `jichi doctor --output json`. */
+export interface DoctorCheck {
+  status: "ok" | "warn" | "fail";
+  label: string;
+  detail: string;
+}
+
+export interface DoctorReport {
+  ok: number;
+  warn: number;
+  fail: number;
+  exit: number;
+  checks: DoctorCheck[];
 }
 
 export interface SpawnSpec {
@@ -32,7 +84,7 @@ export interface LaunchSuggestion {
   /** Voller Pfad, falls auffindbar — sonst `null`, und die Oberfläche fragt. */
   resolved: string | null;
   cwd: string;
-  env: Array<{ name: string; file: string }>;
+  env: EnvSpec[];
   hint: string;
 }
 
@@ -64,6 +116,20 @@ export interface Transport {
   running(): Promise<boolean>;
   /** Hört auf die Ereignisse des Kindes. Der Rückgabewert löst die Bindung. */
   listen(events: TransportEvents): Promise<() => void>;
+
+  // ── Erster Start ───────────────────────────────────────────────────────────
+
+  readiness(): Promise<Readiness>;
+  /** Der Agent prüft sich selbst: Schlüssel, Server, Modelle, Kontextfenster. */
+  doctor(program: string, env: EnvSpec[]): Promise<DoctorReport>;
+  /** Legt die Konfiguration des Agenten an. Scheitert, wenn es sie schon gibt. */
+  writeConfig(preset: string): Promise<ConfigReport>;
+  /** Legt ein Geheimnis im Schlüsselbund ab. Es kommt nie wieder hierher zurück. */
+  secretStore(account: string, value: string): Promise<void>;
+  secretPresent(account: string): Promise<boolean>;
+  secretForget(account: string): Promise<void>;
+  /** Ordnerauswahl des Betriebssystems. `null`, wenn abgebrochen wurde. */
+  pickDirectory(title: string): Promise<string | null>;
 }
 
 interface LineEvent {
@@ -100,6 +166,24 @@ export const tauriTransport: Transport = {
   stop: () => invoke<void>("acp_stop").catch(fail),
 
   running: () => invoke<boolean>("acp_running").catch(fail),
+
+  readiness: () => invoke<Readiness>("readiness").catch(fail),
+
+  doctor: (program, env) => invoke<DoctorReport>("doctor", { program, env }).catch(fail),
+
+  writeConfig: (preset) => invoke<ConfigReport>("write_config", { preset }).catch(fail),
+
+  secretStore: (account, value) =>
+    invoke<void>("secret_store", { account, value }).catch(fail),
+
+  secretPresent: (account) => invoke<boolean>("secret_present", { account }).catch(fail),
+
+  secretForget: (account) => invoke<void>("secret_forget", { account }).catch(fail),
+
+  async pickDirectory(title) {
+    const picked = await open({ directory: true, multiple: false, title }).catch(fail);
+    return typeof picked === "string" ? picked : null;
+  },
 
   async listen(events) {
     const unlisten = await Promise.all([

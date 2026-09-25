@@ -35,8 +35,8 @@ und gilt in beide Richtungen.
 ## Vor jeder Übergabe
 
 ```sh
-npm run check        # Typen + 31 Prüfungen des Kerns
-npm run check:rust   # 9 Prüfungen der Rust-Seite
+npm run check        # Typen + 42 Prüfungen des Kerns
+npm run check:rust   # 11 Prüfungen der Rust-Seite
 ```
 
 Beide müssen grün sein. Sie laufen ohne Fenster, ohne Modell und ohne

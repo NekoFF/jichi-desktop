@@ -10,7 +10,8 @@
  *   transport.ts  die einzige Stelle, die Tauri kennt.
  *   state.ts      Ansichtsmodell und reine Übergänge darauf.
  *   agent.ts      der Agent als ein Objekt — die Fläche für die Oberfläche.
- *   settings.ts   was gespeichert wird, und was ausdrücklich nicht.
+ *   settings.ts   wie der Agent gestartet wird — und was ausdrücklich nicht gespeichert wird.
+ *   preferences.ts  wie die Anwendung sich verhält (Name, Erscheinungsbild).
  *   labels.ts     deutsche Wörter und Töne, damit Komponenten ACP nicht kennen.
  */
 
@@ -42,6 +43,14 @@ export {
   type TranscriptItem,
 } from "./state.ts";
 export {
+  applyAppearance,
+  DEFAULT_PREFERENCES,
+  readPreferences,
+  writePreferences,
+  type Appearance,
+  type Preferences,
+} from "./preferences.ts";
+export {
   permissionTone,
   relativeTime,
   roleLabel,
@@ -65,4 +74,14 @@ export {
   type ToolKind,
   type ToolStatus,
 } from "./protocol.ts";
-export { tauriTransport, type EnvSpec, type StoredSession, type Transport } from "./transport.ts";
+export {
+  tauriTransport,
+  type ConfigReport,
+  type DoctorCheck,
+  type DoctorReport,
+  type EnvSpec,
+  type ModelInfo,
+  type Readiness,
+  type StoredSession,
+  type Transport,
+} from "./transport.ts";

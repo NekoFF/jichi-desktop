@@ -61,6 +61,61 @@ Erlaubnis fragt.
 └──────────────┴─────────────────────────────────────┘
 ```
 
+### Bildschirm 0 — erster Start
+
+Er erscheint, solange `snapshot.needsSetup` gilt, und deckt alles zu. Alles
+andere bleibt bis dahin unerreichbar.
+
+```
+                    jichi
+
+            Willkommen bei jichi
+
+     Wie soll jichi dich nennen?
+     [ Dmitry                        ]
+
+     API-Schlüssel
+     [ ••••••••••••••••••••••••••••• ]
+
+              [  Verbinden  ]
+
+     Der Schlüssel wird im Schlüsselbund dieses
+     Geräts abgelegt — nicht in einer Datei
+     dieser Anwendung.
+```
+
+`agent.setup(key)` erledigt dahinter drei Dinge: Schlüssel in den
+Schlüsselbund, Konfiguration des Agenten anlegen falls sie fehlt, und der Agent
+prüft sich selbst. Der Rückgabewert ist ein Bericht
+(`{ok, warn, fail, checks}`) — daraus wird die Rückmeldung gebaut. Nach dem
+Absenden wird das Feld geleert.
+
+Nach dem Anbieter wird **nicht** gefragt: diese Anwendung kennt das Gateway der
+JLU. Nach Programmpfad, Argumenten oder Arbeitsverzeichnis erst recht nicht.
+
+### Einstellungen — drei Ebenen, keine Liste
+
+```
+Allgemein
+  Name                  Dmitry
+  Erscheinungsbild      System
+
+KI-Verbindung
+  Status                ● Verbunden · 5 Modelle · jichi 0.10.0
+  [Verbindung prüfen]   [Schlüssel entfernen]
+
+Erweitert  ▸
+  Programm · Argumente · Arbeitsverzeichnis · Diagnose (stderr)
+```
+
+Der heutige Einstellungsdialog der Referenzansicht zeigt genau diese Gliederung,
+aber in roher Form. **Er ist eine Liste der Möglichkeiten, kein Entwurf.** Alles
+unter „Erweitert“ sieht ein normaler Benutzer nie.
+
+Das **Arbeitsverzeichnis ist keine Einstellung**. Es entsteht durch
+„Projekt öffnen“ (`agent.pickWorkspace()` öffnet die Ordnerauswahl des
+Betriebssystems) und gehört sichtbar in die Kopfzeile, nicht in einen Dialog.
+
 **Verbindlich ist `docs/CONTRACT.md`.** Dort steht die Anbindung, die Form des
 Zustands, alle Methoden und die zehn Zustände, die gezeichnet werden müssen.
 Lies sie zuerst.
@@ -111,15 +166,16 @@ Drei Regeln, die nicht verhandelbar sind:
    `import { agent } from "./core/index.ts"` ist der einzige Zugang.
 2. Keine festen Farben. Semantische Token, nie `bg-blue-500`, nie
    `style={{ color: "#123456" }}`.
-3. Kein Eingabefeld, das einen API-Schlüssel entgegennimmt. Die Einstellungen
-   kennen nur den **Pfad** zu der Datei, die ihn enthält — gelesen wird sie von
-   der Rust-Seite beim Start.
+3. Der API-Schlüssel wird ausschließlich über `agent.setup(key)` entgegengenommen
+   und verschwindet damit im Schlüsselbund des Betriebssystems. Kein zweites
+   Eingabefeld, keine Anzeige, keine Kopie in `localStorage`, kein Wert im
+   Zustand. Es gibt bewusst keinen Befehl, der ihn zurückgibt.
 
 ## Fertig ist es, wenn
 
 ```sh
-npm run check        # Typen + 31 Prüfungen des Kerns — muss grün bleiben
-npm run check:rust   # 9 Prüfungen der Rust-Seite
+npm run check        # Typen + 42 Prüfungen des Kerns — muss grün bleiben
+npm run check:rust   # 11 Prüfungen der Rust-Seite
 npm run tauri dev    # startet und zeigt alle zehn Zustände
 ```
 

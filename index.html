@@ -41,6 +41,7 @@
             <span id="status-dot" class="dot"></span>
             <span id="status-text">nicht verbunden</span>
           </div>
+          <button id="open-project" class="cancel" title="Projektordner wählen">Projekt öffnen</button>
           <div id="cwd-label" class="cwd"></div>
           <button id="cancel-turn" class="cancel" hidden>Abbrechen</button>
         </header>
@@ -66,35 +67,82 @@
       </main>
     </div>
 
+    <!-- ── Erster Start ──────────────────────────────────────────────────── -->
+    <div id="setup" class="overlay" hidden>
+      <div class="dialog setup">
+        <div class="setup-brand">jichi</div>
+        <h2>Willkommen bei jichi</h2>
+
+        <label>
+          Wie soll jichi dich nennen?
+          <input id="setup-name" type="text" autocomplete="off" placeholder="Dein Name" />
+        </label>
+
+        <label>
+          API-Schlüssel
+          <input id="setup-key" type="password" autocomplete="off" spellcheck="false" />
+        </label>
+
+        <div class="dialog-actions">
+          <button id="setup-go" type="button" class="primary">Verbinden</button>
+        </div>
+
+        <p id="setup-state" class="hint"></p>
+        <div id="setup-checks"></div>
+
+        <p class="hint">
+          Der Schlüssel wird im Schlüsselbund dieses Geräts abgelegt — nicht in einer
+          Datei dieser Anwendung, und er wird nie wieder angezeigt.
+        </p>
+      </div>
+    </div>
+
     <!-- ── Einstellungen ─────────────────────────────────────────────────── -->
     <div id="settings" class="overlay" hidden>
       <div class="dialog">
         <h2>Einstellungen</h2>
 
         <label>
-          Programm
-          <input id="cfg-program" type="text" spellcheck="false" />
+          Name <span class="muted">(wie jichi dich anspricht)</span>
+          <input id="cfg-name" type="text" autocomplete="off" />
         </label>
 
         <label>
-          Argumente <span class="muted">(durch Leerzeichen getrennt)</span>
-          <input id="cfg-args" type="text" spellcheck="false" />
+          Erscheinungsbild
+          <select id="cfg-appearance">
+            <option value="system">System</option>
+            <option value="light">Hell</option>
+            <option value="dark">Dunkel</option>
+          </select>
         </label>
 
-        <label>
-          Arbeitsverzeichnis <span class="muted">(leer = Standard)</span>
-          <input id="cfg-cwd" type="text" spellcheck="false" placeholder="/Pfad/zum/Projekt" />
-        </label>
-
-        <label>
-          API-Schlüssel <span class="muted">(Pfad zur Datei — der Inhalt wird nie gespeichert)</span>
-          <input id="cfg-key" type="text" spellcheck="false" placeholder="~/.config/jlu/apikey.txt" />
-        </label>
-
-        <p id="cfg-hint" class="hint"></p>
+        <div class="section-label">KI-Verbindung</div>
+        <p id="cfg-connection" class="hint"></p>
+        <div class="dialog-actions" style="justify-content: flex-start">
+          <button id="cfg-check" type="button" class="ghost">Verbindung prüfen</button>
+          <button id="cfg-forget" type="button" class="ghost">Schlüssel entfernen</button>
+        </div>
+        <div id="cfg-checks"></div>
 
         <details>
-          <summary class="muted">Diagnose (stderr des Agenten)</summary>
+          <summary class="muted">Erweiterte Einstellungen</summary>
+
+          <label>
+            Programm
+            <input id="cfg-program" type="text" spellcheck="false" />
+          </label>
+
+          <label>
+            Argumente <span class="muted">(durch Leerzeichen getrennt)</span>
+            <input id="cfg-args" type="text" spellcheck="false" />
+          </label>
+
+          <label>
+            Arbeitsverzeichnis <span class="muted">(sonst über „Projekt öffnen“)</span>
+            <input id="cfg-cwd" type="text" spellcheck="false" placeholder="/Pfad/zum/Projekt" />
+          </label>
+
+          <p id="cfg-hint" class="hint"></p>
           <pre id="cfg-diag" class="tool-out"></pre>
         </details>
 

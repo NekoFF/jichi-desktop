@@ -310,3 +310,35 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Erster Start ─────────────────────────────────────────────────────────── */
+
+.dialog.setup { width: min(420px, 100%); text-align: center; }
+.dialog.setup h2 { margin-bottom: 20px; font-weight: 600; }
+.dialog.setup label { text-align: left; }
+.dialog.setup input { font-family: var(--sans); font-size: 14px; }
+.dialog.setup .dialog-actions { justify-content: stretch; margin: 18px 0 12px; }
+.dialog.setup .dialog-actions button { flex: 1; padding: 9px; }
+.dialog.setup .hint { text-align: left; }
+
+.setup-brand {
+  font-size: 22px; font-weight: 640; letter-spacing: -0.02em;
+  color: var(--accent); margin-bottom: 6px;
+}
+
+#setup-checks:not(:empty),
+#cfg-checks:not(:empty) { margin: 10px 0; }
+#setup-checks .note,
+#cfg-checks .note { max-width: none; margin: 0 0 4px; padding: 0; text-align: left; }
+
+.dialog select {
+  display: block; width: 100%; margin-top: 5px; padding: 8px 11px;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  outline: none; font-size: 13px;
+}
+
+.dialog details { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+.dialog details summary { cursor: pointer; font-size: 12.5px; margin-bottom: 12px; }
+.dialog .section-label { padding: 14px 0 6px; }
+.dialog pre.tool-out { border: 1px solid var(--line); border-radius: var(--radius-sm); max-height: 160px; }

@@ -13,7 +13,16 @@
  */
 
 import { Agent } from "./agent.ts";
-import type { SpawnSpec, StoredSession, Transport, TransportEvents } from "./transport.ts";
+import type {
+  ConfigReport,
+  DoctorReport,
+  EnvSpec,
+  Readiness,
+  SpawnSpec,
+  StoredSession,
+  Transport,
+  TransportEvents,
+} from "./transport.ts";
 
 // ── Der erfundene Agent ──────────────────────────────────────────────────────
 
@@ -23,6 +32,12 @@ class FakeAgent implements Transport {
   #events: TransportEvents | null = null;
   #alive = false;
   spawns: SpawnSpec[] = [];
+
+  // Zustand des Rechners, den der Test stellt.
+  readonly schluesselbund = new Map<string, string>();
+  konfiguriert = true;
+  ordner: string | null = "/tmp/projekt";
+  readonly doctorAufrufe: Array<{ program: string; env: EnvSpec[] }> = [];
 
   async defaultLaunch() {
     return {
@@ -63,6 +78,75 @@ class FakeAgent implements Transport {
 
   async running() {
     return this.#alive;
+  }
+
+  #config(): ConfigReport {
+    return {
+      path: "/heim/.jichi",
+      exists: this.konfiguriert,
+      problem: null,
+      models: this.konfiguriert
+        ? [
+            {
+              name: "coder",
+              model: "jlu/qwen3-coder-next",
+              apiBase: "https://api.hrz.uni-giessen.de/v1",
+              apiKeyEnv: "JICHI_API_KEY",
+              roles: [],
+            },
+          ]
+        : [],
+    };
+  }
+
+  async readiness(): Promise<Readiness> {
+    const keyStored = this.schluesselbund.has("JICHI_API_KEY");
+    return {
+      agent: "/usr/local/bin/jichi",
+      version: "jichi 0.10.0",
+      config: this.#config(),
+      keyStored,
+      keyEnv: "JICHI_API_KEY",
+      needsSetup: !this.konfiguriert || !keyStored,
+    };
+  }
+
+  async doctor(program: string, env: EnvSpec[]): Promise<DoctorReport> {
+    this.doctorAufrufe.push({ program, env });
+    return {
+      ok: 34,
+      warn: 2,
+      fail: 0,
+      exit: 0,
+      checks: [
+        { status: "ok", label: "API key present for the active model", detail: "" },
+        { status: "ok", label: "model server reachable", detail: "coder: https://…" },
+        { status: "warn", label: "no pricing for the active model", detail: "" },
+      ],
+    };
+  }
+
+  async writeConfig(preset: string): Promise<ConfigReport> {
+    if (preset !== "jlu") throw new Error(`unbekannte Vorlage ${preset}`);
+    if (this.konfiguriert) throw new Error("gibt es bereits");
+    this.konfiguriert = true;
+    return this.#config();
+  }
+
+  async secretStore(account: string, value: string) {
+    this.schluesselbund.set(account, value);
+  }
+
+  async secretPresent(account: string) {
+    return this.schluesselbund.has(account);
+  }
+
+  async secretForget(account: string) {
+    this.schluesselbund.delete(account);
+  }
+
+  async pickDirectory() {
+    return this.ordner;
   }
 
   async listen(events: TransportEvents) {
@@ -135,7 +219,56 @@ function check(what: string, ok: boolean, detail = ""): void {
 
 // ── Der Ablauf ───────────────────────────────────────────────────────────────
 
+// ── Erster Start ─────────────────────────────────────────────────────────────
+
+const frisch = new FakeAgent();
+frisch.konfiguriert = false; // frischer Rechner: keine Konfiguration, kein Schlüssel
+const neuling = new Agent(frisch);
+
+await neuling.init();
+check("frischer Rechner verlangt den ersten Start", neuling.getSnapshot().needsSetup);
+check("vor der Einrichtung darf nicht gesendet werden", !neuling.getSnapshot().canSend);
+
+const bericht = await neuling.setup("sk-test-geheim-12345");
+check("der Agent prüft sich selbst", bericht.ok === 34 && bericht.fail === 0);
+check("der Schlüssel liegt im Schlüsselbund", frisch.schluesselbund.get("JICHI_API_KEY") === "sk-test-geheim-12345");
+check("die Konfiguration des Agenten wurde angelegt", frisch.konfiguriert);
+check("nach der Einrichtung ist alles bereit", !neuling.getSnapshot().needsSetup && neuling.getSnapshot().canSend);
+
+const uebergeben = frisch.doctorAufrufe[frisch.doctorAufrufe.length - 1]?.env ?? [];
+check(
+  "der Schlüssel wird als Schlüsselbund-Konto übergeben, nie als Wert",
+  uebergeben.some((e) => e.name === "JICHI_API_KEY" && e.secret === "JICHI_API_KEY") &&
+    uebergeben.every((e) => e.value === undefined),
+  JSON.stringify(uebergeben),
+);
+check(
+  "der Schlüssel taucht nirgends im Zustand auf",
+  !JSON.stringify(neuling.getSnapshot()).includes("sk-test-geheim"),
+);
+
+// Ein Projekt öffnen heißt: Verzeichnis wechseln *und* dort eine neue Sitzung
+// beginnen. Der Handschlag wird hier von Hand beantwortet.
+const geoeffnet = neuling.pickWorkspace();
+await settle();
+frisch.reply("initialize", { protocolVersion: 1, agentCapabilities: {} });
+await settle();
+frisch.reply("session/new", { sessionId: "S-neu" });
+await geoeffnet;
+check("ein gewählter Ordner wird zum Arbeitsverzeichnis", neuling.getSnapshot().cwd === "/tmp/projekt");
+check(
+  "und der Agent arbeitet dort in einer neuen Sitzung",
+  neuling.getSnapshot().sessionId === "S-neu" &&
+    frisch.spawns[frisch.spawns.length - 1]?.cwd === "/tmp/projekt",
+);
+
+await neuling.forgetKey();
+check("ohne Schlüssel verlangt die Anwendung wieder den ersten Start", neuling.getSnapshot().needsSetup);
+
+// ── Gespräch ─────────────────────────────────────────────────────────────────
+
 const fake = new FakeAgent();
+fake.schluesselbund.set("JICHI_API_KEY", "sk-vorhanden");
 const agent = new Agent(fake);
 
 await agent.init();
@@ -152,9 +285,10 @@ check(
 const turn = agent.send("Erklär mir dieses Projekt");
 await settle();
 check(
-  "der Schlüssel wird als Datei übergeben, nicht als Wert",
-  fake.spawns[0]?.env?.[0]?.file === "~/.config/jlu/apikey.txt" &&
-    fake.spawns[0]?.env?.[0]?.value === undefined,
+  "der Schlüssel wird als Schlüsselbund-Konto übergeben, nie als Wert",
+  fake.spawns[0]?.env?.some((e) => e.name === "JICHI_API_KEY" && e.secret === "JICHI_API_KEY") ===
+    true && fake.spawns[0]?.env?.every((e) => e.value === undefined) === true,
+  JSON.stringify(fake.spawns[0]?.env),
 );
 check("initialize ging hinaus", fake.sent.some((l) => l.includes('"initialize"')));
 check(
