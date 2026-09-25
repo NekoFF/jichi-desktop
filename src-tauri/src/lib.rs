@@ -13,11 +13,11 @@
 //!    Ein in `/opt/homebrew/bin` oder `~/.local/bin` installiertes Programm ist
 //!    dann unsichtbar. Darum wird der PATH des Kindes ergänzt und der Agent
 //!    zusätzlich in den üblichen Verzeichnissen gesucht.
-//! 2. **Schlüssel aus Dateien.** Der Agent liest seinen API-Schlüssel aus einer
+//! 2. **Der Schlüssel.** Der Agent liest seinen API-Schlüssel aus einer
 //!    Umgebungsvariablen (`apiKeyEnv` in seiner Konfiguration). Diese Anwendung
-//!    speichert nie einen Schlüssel — sie kennt nur den *Pfad* zu einer Datei,
-//!    liest sie beim Start und setzt die Variable für das Kind. Der Wert wird
-//!    nirgends protokolliert und landet in keiner Einstellungsdatei.
+//!    legt ihn in einer eigenen Datei ab (0600, siehe „Geheimnisse“), liest ihn
+//!    nur beim Start des Kindes und setzt dort die Variable. Kein Befehl gibt
+//!    ihn an die Oberfläche zurück; er wird nirgends protokolliert.
 //! 3. **Plattform.** Unter Linux und macOS läuft der Agent nativ; Windows nennt
 //!    das Projekt "not supported by design", dort führt der Weg über WSL2. Die
 //!    Fallunterscheidung liegt an dieser einen Stelle.
@@ -31,6 +31,9 @@ use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+mod gateway;
+mod terminal;
 
 // ── Zustand ──────────────────────────────────────────────────────────────────
 
@@ -151,10 +154,9 @@ fn is_executable(p: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return p
-            .metadata()
+        p.metadata()
             .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
@@ -253,7 +255,7 @@ fn skip_dir(name: &str) -> bool {
 /// Breite zuerst, weil ein Treffer näher an der Wurzel der wahrscheinlichere
 /// ist. Symbolischen Verzeichnisverweisen wird nicht gefolgt — sonst kann die
 /// Suche im Kreis laufen.
-fn scan_for(root: &Path, program: &str) -> Option<PathBuf> {
+fn scan_for(root: &Path, program: &str, accept: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
     let mut visited = 0usize;
     let start = std::time::Instant::now();
@@ -279,7 +281,7 @@ fn scan_for(root: &Path, program: &str) -> Option<PathBuf> {
                 }
             } else if name == program {
                 let path = entry.path();
-                if is_executable(&path) {
+                if is_executable(&path) && accept(&path) {
                     return Some(path);
                 }
             }
@@ -327,6 +329,20 @@ fn read_found() -> BTreeMap<String, String> {
         .unwrap_or_default()
 }
 
+/// Nur ein Programm, das in einem gebauten jichi-Quellbaum liegt, wird aus der
+/// Heimatsuche übernommen.
+///
+/// Die Suche nimmt sonst die erste ausführbare Datei namens `jichi`, die sie
+/// findet — auch die aus einem gerade heruntergeladenen fremden Repository,
+/// denn git bewahrt das Ausführungsrecht. Dieses Programm bekäme beim nächsten
+/// Start den API-Schlüssel in seine Umgebung. Ein echter Bau liegt neben seinen
+/// Quellen; genau das wird geprüft, ohne die Datei auszuführen.
+fn is_jichi_build(path: &Path) -> bool {
+    path.parent().is_some_and(|dir| {
+        dir.join("include/jc_version.h").is_file() && dir.join("src/main.c").is_file()
+    })
+}
+
 /// Gefundene Pfade merken — im Speicher und auf der Platte.
 ///
 /// Die Platte ist der eigentliche Punkt. Ohne sie liefe die Suche bei jedem
@@ -346,7 +362,7 @@ fn scan_home(program: &str) -> Option<PathBuf> {
 
     let mut notiert = read_found();
     if let Some(hit) = notiert.get(program).map(PathBuf::from) {
-        if is_executable(&hit) {
+        if is_executable(&hit) && is_jichi_build(&hit) {
             if let Ok(mut c) = cache.lock() {
                 c.insert(program.to_string(), hit.clone());
             }
@@ -355,7 +371,7 @@ fn scan_home(program: &str) -> Option<PathBuf> {
         notiert.remove(program); // weggezogen: Notiz ist wertlos
     }
 
-    let found = scan_for(&home()?, program)?;
+    let found = scan_for(&home()?, program, is_jichi_build)?;
 
     if let Ok(mut c) = cache.lock() {
         c.insert(program.to_string(), found.clone());
@@ -369,15 +385,14 @@ fn scan_home(program: &str) -> Option<PathBuf> {
 
 /// Eine Umgebungsvariable für das Kind.
 ///
-/// Drei Quellen, in dieser Reihenfolge: der Schlüsselbund des Betriebssystems,
+/// Drei Quellen, in dieser Reihenfolge: die geschützte Ablage dieser Anwendung,
 /// eine Datei, ein direkter Wert. Für Geheimnisse ist nur die erste gedacht —
-/// die beiden anderen bleiben, weil ein Rechner ohne Schlüsselbund (ein
-/// Linux-Server ohne Secret Service) sonst nicht zu bedienen wäre.
+/// die beiden anderen bleiben für Sonderfälle und ältere Einstellungen.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct EnvSpec {
     name: String,
-    /// Konto im Schlüsselbund. Der Wert wird hier gelesen und nirgends sonst.
+    /// Name in der geschützten Ablage. Der Wert wird hier gelesen und nirgends sonst.
     #[serde(default)]
     secret: Option<String>,
     #[serde(default)]
@@ -396,7 +411,7 @@ fn resolve_env(specs: &[EnvSpec]) -> Result<BTreeMap<String, String>, String> {
         let value = match (&spec.secret, &spec.value, &spec.file) {
             (Some(account), _, _) if !account.trim().is_empty() => {
                 secret_read(account.trim()).ok_or_else(|| {
-                    format!("{}: im Schlüsselbund liegt nichts unter „{account}“", spec.name)
+                    format!("{}: in der Schlüsselablage liegt nichts unter „{account}“", spec.name)
                 })?
             }
             (_, _, Some(f)) if !f.trim().is_empty() => {
@@ -776,8 +791,7 @@ fn run_bounded(
 /// zweiter, hier nachgebauter Prüfweg könnte grün sagen, wo der echte rot ist.
 ///
 /// Der Bericht wird unverändert weitergereicht: `{ok, warn, fail, checks:[…]}`.
-#[tauri::command]
-fn doctor(program: String, env: Option<Vec<EnvSpec>>) -> Result<serde_json::Value, String> {
+fn doctor_now(program: String, env: Option<Vec<EnvSpec>>) -> Result<serde_json::Value, String> {
     let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
     let resolved = resolve_env(env.as_deref().unwrap_or(&[]))?;
 
@@ -820,11 +834,15 @@ struct Readiness {
     needs_setup: bool,
 }
 
-#[tauri::command]
-fn readiness() -> Readiness {
-    let launch = default_launch();
-    let agent = launch.resolved.clone();
-    let version = agent.as_deref().and_then(|_| probe(launch.program.clone()).ok());
+/// `program` ist das, was der Benutzer eingetragen hat — sonst wäre ein von
+/// Hand gewähltes Programm für die Bereitschaft unsichtbar, und der erste Start
+/// liesse sich nie abschliessen, wenn die Suche nichts findet.
+fn readiness_now(program: Option<String>) -> Readiness {
+    let agent = match program.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => which(p).map(|found| found.to_string_lossy().into_owned()),
+        None => default_launch_now().resolved,
+    };
+    let version = agent.as_deref().and_then(|a| probe_now(a.to_string()).ok());
     let config = read_config();
     let key_stored = secret_noted(KEY_ENV);
 
@@ -880,8 +898,7 @@ fn key_file_candidates() -> Vec<PathBuf> {
 
 /// Der Vorschlag für diese Plattform. Die Oberfläche darf ihn überschreiben —
 /// geraten wird hier nur der Normalfall.
-#[tauri::command]
-fn default_launch() -> Launch {
+fn default_launch_now() -> Launch {
     let windows = cfg!(target_os = "windows");
 
     let (program, args) = if windows {
@@ -935,8 +952,7 @@ fn default_launch() -> Launch {
 /// Prüft ein Programm, bevor eine Sitzung davon abhängt: aufrufen, erste
 /// Ausgabezeile zurückgeben. Das macht das Einstellungsfeld überprüfbar, ohne
 /// dass der Benutzer einen Fehlschlag mitten im Gespräch erlebt.
-#[tauri::command]
-fn probe(program: String) -> Result<String, String> {
+fn probe_now(program: String) -> Result<String, String> {
     let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
     let out = Command::new(&path)
         .arg("--version")
@@ -969,8 +985,7 @@ struct StoredSession {
     turns: usize,
 }
 
-#[tauri::command]
-fn sessions() -> Result<Vec<StoredSession>, String> {
+fn sessions_now() -> Result<Vec<StoredSession>, String> {
     match home() {
         Some(h) => Ok(sessions_in(&h.join(".jichi.d/sessions"))),
         None => Ok(Vec::new()),
@@ -1081,25 +1096,130 @@ fn sessions_in(dir: &Path) -> Vec<StoredSession> {
         });
     }
 
-    out.sort_by(|a, b| b.modified.cmp(&a.modified));
+    out.sort_by_key(|s| std::cmp::Reverse(s.modified));
     out
 }
 
 // ── Lebenszyklus des Kindes ──────────────────────────────────────────────────
 
+/// Wie lange ein Agent nach dem Schliessen von stdin Zeit bekommt, von selbst
+/// zu gehen — seine Sitzung zu speichern und seine Werkzeuge aufzuräumen —,
+/// bevor er beendet wird.
+const STOP_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Wartet auf das Ende eines Kindes, ohne ewig zu warten.
+fn wait_for(child: &mut Child, limit: std::time::Duration) -> Option<std::process::ExitStatus> {
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if start.elapsed() < limit => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            _ => return None,
+        }
+    }
+}
+
+/// Die ganze Prozessgruppe des Agenten beenden, nicht nur ihn selbst.
+///
+/// Der Agent startet Werkzeuge — `make`, einen Testlauf, einen Server. Mit
+/// `kill` auf seine Prozess-Id allein blieben sie als Waisen stehen und
+/// schrieben weiter in den Projektordner. Darum läuft er in einer eigenen
+/// Gruppe (siehe `acp_start`), und die wird als Ganzes beendet.
+#[cfg(unix)]
+pub(crate) fn signal_group(pid: u32, signal: &str) {
+    let _ = Command::new("kill")
+        .arg(format!("-{signal}"))
+        .arg("--")
+        .arg(format!("-{pid}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 fn stop_inner(acp: &Acp) {
     let taken = acp.live.lock().ok().and_then(|mut g| g.take());
     if let Some(mut live) = taken {
         drop(live.stdin.take()); // Pipe schliessen -> der Agent sieht EOF
+        if wait_for(&mut live.child, STOP_GRACE).is_some() {
+            return;
+        }
+        #[cfg(unix)]
+        {
+            signal_group(live.child.id(), "TERM");
+            if wait_for(&mut live.child, std::time::Duration::from_millis(500)).is_some() {
+                return;
+            }
+            signal_group(live.child.id(), "KILL");
+        }
         let _ = live.child.kill();
         let _ = live.child.wait(); // ernten, sonst bleibt ein Zombie
     }
 }
 
-#[tauri::command]
-fn acp_start(
+/// Zeilen aus einem Rohr lesen — **als Bytes**, nicht als Text.
+///
+/// `BufRead::lines()` bricht bei der ersten Zeile ab, die kein gültiges UTF-8
+/// ist, und das Rohr läuft voll: der Agent blockiert beim nächsten Schreiben,
+/// und mit ihm die ganze Anwendung. Ein Werkzeug, das eine Latin-1-Datei zeigt,
+/// genügt dafür. Ungültige Bytes werden hier ersetzt statt gefürchtet.
+fn for_each_line(pipe: impl std::io::Read, mut each: impl FnMut(String)) {
+    let mut reader = BufReader::new(pipe);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => return,
+            Ok(_) => {
+                while matches!(buf.last(), Some(b'\n' | b'\r')) {
+                    buf.pop();
+                }
+                each(String::from_utf8_lossy(&buf).into_owned());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return,
+        }
+    }
+}
+
+/// Nach dem Ende von stdout: den Rückgabewert holen, ohne das Schloss zu halten.
+///
+/// Wer beim Warten auf das Kind das Schloss hält, sperrt jeden anderen Befehl
+/// aus — auch `acp_stop` und das Schliessen des Fensters. Darum wird nur kurz
+/// gesperrt und nachgesehen, und zwischen zwei Blicken ist das Schloss frei.
+fn reap_after_eof(app: &AppHandle, generation: u64) -> Option<i32> {
+    let start = std::time::Instant::now();
+    loop {
+        {
+            let state = app.state::<Acp>();
+            let mut guard = state.live.lock().ok()?;
+            let live = guard.as_mut().filter(|l| l.generation == generation)?;
+            match live.child.try_wait() {
+                Ok(Some(status)) => {
+                    // Geerntet: der Eintrag gehört niemandem mehr.
+                    let code = status.code();
+                    *guard = None;
+                    return code;
+                }
+                Ok(None) => {}
+                Err(_) => return None,
+            }
+            // stdout zu, Prozess lebt noch: er hat sein Rohr geschlossen, antwortet
+            // also nie mehr. Nach einer Frist wird er beendet statt vergessen.
+            if start.elapsed() > STOP_GRACE {
+                drop(guard);
+                stop_inner(state.inner());
+                return None;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn acp_start_now(
     app: AppHandle,
-    state: State<Acp>,
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
@@ -1123,7 +1243,8 @@ fn acp_start(
         None => None,
     };
 
-    stop_inner(&state);
+    let state = app.state::<Acp>();
+    stop_inner(state.inner());
 
     let generation = state.next_gen.fetch_add(1, Ordering::SeqCst) + 1;
 
@@ -1136,6 +1257,14 @@ fn acp_start(
         .stderr(Stdio::piped());
     if let Some(dir) = &work_dir {
         cmd.current_dir(dir);
+    }
+    // Eine eigene Prozessgruppe, damit `stop_inner` auch die Werkzeuge des
+    // Agenten erreicht — und damit ein Strg-C im Terminal von `tauri dev` nicht
+    // am Agenten vorbei ins Leere geht.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
     }
 
     let mut child = cmd
@@ -1151,36 +1280,135 @@ fn acp_start(
     // stdout: jede Zeile ist eine JSON-RPC-Nachricht.
     let out_app = app.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if line.trim().is_empty() {
-                continue;
+        for_each_line(stdout, |line| {
+            if !line.trim().is_empty() {
+                let _ = out_app.emit("acp-line", LineEvent { generation, line });
             }
-            let _ = out_app.emit("acp-line", LineEvent { generation, line });
-        }
+        });
         // EOF: der Agent ist fertig. Den Rückgabewert nur ernten, wenn wirklich
         // noch unser Kind im Zustand steht — sonst wäre das ein Fremdprozess.
-        let code = out_app
-            .state::<Acp>()
-            .live
-            .lock()
-            .ok()
-            .and_then(|mut g| match g.as_mut() {
-                Some(live) if live.generation == generation => live.child.wait().ok().and_then(|s| s.code()),
-                _ => None,
-            });
+        let code = reap_after_eof(&out_app, generation);
         let _ = out_app.emit("acp-exit", ExitEvent { generation, code });
     });
 
     // stderr: Diagnose des Agenten, nicht Protokoll. Getrennt halten, sonst
     // landet eine Warnung im JSON-Parser und sieht aus wie ein Protokollfehler.
+    // Bis zum Ende lesen, auch nach ungültigen Bytes: ein volles stderr-Rohr
+    // hält den Agenten genauso an wie ein volles stdout.
     let err_app = app.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+        for_each_line(stderr, |line| {
             let _ = err_app.emit("acp-stderr", LineEvent { generation, line });
-        }
+        });
     });
 
     Ok(generation)
+}
+
+// ── Was der Schlüssel erreicht ───────────────────────────────────────────────
+
+/// Der Server, an den der Agent seinen Schlüssel schickt: der erste Eintrag
+/// seiner Konfiguration, der ihn aus `JICHI_API_KEY` liest.
+fn gateway_base() -> String {
+    read_config()
+        .models
+        .iter()
+        .find(|m| m.api_key_env.as_deref() == Some(KEY_ENV) && m.api_base.is_some())
+        .and_then(|m| m.api_base.clone())
+        .unwrap_or_else(|| JLU_API_BASE.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayReport {
+    base: String,
+    models: Vec<gateway::GatewayModel>,
+}
+
+fn gateway_models_now() -> Result<GatewayReport, String> {
+    let key = secret_read(KEY_ENV).ok_or("Es ist kein API-Schlüssel hinterlegt.")?;
+    let base = gateway_base();
+    let models = gateway::fetch(&base, &key)?;
+    Ok(GatewayReport { base, models })
+}
+
+// ── Dateien für die Vorschau ─────────────────────────────────────────────────
+
+/// Obergrenze für eine Datei in der Vorschau. Ein Diff über Megabytes liest
+/// niemand, und er friert die Anzeige ein.
+const PREVIEW_MAX: u64 = 2 * 1024 * 1024;
+
+/// Den heutigen Inhalt einer Datei lesen — damit eine Berechtigungsfrage zeigen
+/// kann, was sich ändern *wird*, statt nur den neuen Text.
+///
+/// Nur innerhalb des Projektordners. `None` heisst: die Datei gibt es noch
+/// nicht (sie wird neu angelegt).
+fn read_workspace_file_in(cwd: &Path, path: &str) -> Result<Option<String>, String> {
+    let root = cwd
+        .canonicalize()
+        .map_err(|_| format!("{} ist nicht lesbar", cwd.display()))?;
+    let wanted = {
+        let p = expand_tilde(path);
+        if p.is_absolute() { p } else { cwd.join(p) }
+    };
+    let file = match wanted.canonicalize() {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Neue Datei: ihr Ordner muss dennoch im Projekt liegen.
+            let parent = wanted.parent().and_then(|p| p.canonicalize().ok());
+            return match parent {
+                Some(p) if p.starts_with(&root) => Ok(None),
+                _ => Err("Die Datei liegt ausserhalb des Projekts.".into()),
+            };
+        }
+        Err(e) => return Err(format!("{}: {e}", wanted.display())),
+    };
+    if !file.starts_with(&root) {
+        return Err("Die Datei liegt ausserhalb des Projekts.".into());
+    }
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", file.display()))?;
+    if !meta.is_file() {
+        return Err(format!("{} ist keine Datei", file.display()));
+    }
+    if meta.len() > PREVIEW_MAX {
+        return Err("Die Datei ist für eine Vorschau zu gross.".into());
+    }
+    let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+/// Obergrenze für eine angehängte Textdatei. Größeres gehört nicht in einen
+/// Prompt, sondern in den Projektordner, wo der Agent es selbst liest.
+const ATTACH_MAX: u64 = 256 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Attachment {
+    name: String,
+    path: String,
+    text: String,
+}
+
+/// Eine vom Benutzer im Systemdialog gewählte Textdatei für den nächsten Zug.
+/// Binärdateien werden abgelehnt: als „Text“ wären sie für das Modell Müll.
+fn read_attachment_now(path: &str) -> Result<Attachment, String> {
+    let p = expand_tilde(path);
+    let meta = p.metadata().map_err(|e| format!("{}: {e}", p.display()))?;
+    if !meta.is_file() {
+        return Err(format!("{} ist keine Datei", p.display()));
+    }
+    if meta.len() > ATTACH_MAX {
+        return Err(format!("{} ist größer als 256 KB.", p.display()));
+    }
+    let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    if bytes.contains(&0) {
+        return Err(format!("{} ist keine Textdatei.", p.display()));
+    }
+    Ok(Attachment {
+        name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        path: p.to_string_lossy().into_owned(),
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+    })
 }
 
 /// Eine Zeile an den Agenten. Der Zeilenumbruch gehört zum Rahmen des
@@ -1196,9 +1424,111 @@ fn acp_send(state: State<Acp>, line: String) -> Result<(), String> {
         .map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))
 }
 
+// ── Befehle ──────────────────────────────────────────────────────────────────
+//
+// Alles, was auf einen Kindprozess oder die Platte wartet, läuft **neben** dem
+// Hauptfaden. Ein gewöhnlicher Tauri-Befehl läuft auf ihm — und solange er
+// wartet, lässt sich das Fenster nicht verschieben und keine Antwort des
+// Agenten zustellen. `doctor` allein darf bis zu 45 Sekunden dauern.
+
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("Hintergrundarbeit abgebrochen: {e}"))
+}
+
 #[tauri::command]
-fn acp_stop(state: State<Acp>) {
-    stop_inner(&state);
+async fn default_launch() -> Result<Launch, String> {
+    blocking(default_launch_now).await
+}
+
+#[tauri::command]
+async fn probe(program: String) -> Result<String, String> {
+    blocking(move || probe_now(program)).await?
+}
+
+#[tauri::command]
+async fn sessions() -> Result<Vec<StoredSession>, String> {
+    blocking(sessions_now).await?
+}
+
+#[tauri::command]
+async fn readiness(program: Option<String>) -> Result<Readiness, String> {
+    blocking(move || readiness_now(program)).await
+}
+
+#[tauri::command]
+async fn doctor(program: String, env: Option<Vec<EnvSpec>>) -> Result<serde_json::Value, String> {
+    blocking(move || doctor_now(program, env)).await?
+}
+
+#[tauri::command]
+async fn acp_start(
+    app: AppHandle,
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+    env: Option<Vec<EnvSpec>>,
+) -> Result<u64, String> {
+    blocking(move || acp_start_now(app, program, args, cwd, env)).await?
+}
+
+#[tauri::command]
+async fn acp_stop(app: AppHandle) -> Result<(), String> {
+    blocking(move || stop_inner(app.state::<Acp>().inner())).await
+}
+
+#[tauri::command]
+async fn read_attachment(path: String) -> Result<Attachment, String> {
+    blocking(move || read_attachment_now(&path)).await?
+}
+
+#[tauri::command]
+async fn gateway_models() -> Result<GatewayReport, String> {
+    blocking(gateway_models_now).await?
+}
+
+#[tauri::command]
+async fn read_workspace_file(cwd: String, path: String) -> Result<Option<String>, String> {
+    blocking(move || read_workspace_file_in(&expand_tilde(&cwd), &path)).await?
+}
+
+#[tauri::command]
+fn term_create(
+    app: AppHandle,
+    command: String,
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+    output_byte_limit: Option<usize>,
+) -> Result<String, String> {
+    app.state::<terminal::Terminals>().create(
+        &app,
+        &command,
+        &args.unwrap_or_default(),
+        cwd.as_deref(),
+        output_byte_limit,
+        &child_path(),
+    )
+}
+
+#[tauri::command]
+fn term_output(app: AppHandle, terminal_id: String) -> Result<terminal::Output, String> {
+    app.state::<terminal::Terminals>().output(&terminal_id)
+}
+
+#[tauri::command]
+async fn term_wait(app: AppHandle, terminal_id: String) -> Result<terminal::ExitStatus, String> {
+    blocking(move || app.state::<terminal::Terminals>().wait(&terminal_id)).await?
+}
+
+#[tauri::command]
+fn term_kill(app: AppHandle, terminal_id: String) -> Result<(), String> {
+    app.state::<terminal::Terminals>().kill(&terminal_id)
+}
+
+#[tauri::command]
+fn term_release(app: AppHandle, terminal_id: String) -> Result<(), String> {
+    app.state::<terminal::Terminals>().release(&terminal_id)
 }
 
 #[tauri::command]
@@ -1219,6 +1549,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Acp::default())
+        .manage(terminal::Terminals::default())
         .invoke_handler(tauri::generate_handler![
             default_launch,
             probe,
@@ -1233,12 +1564,21 @@ pub fn run() {
             acp_start,
             acp_send,
             acp_stop,
-            acp_running
+            acp_running,
+            gateway_models,
+            read_attachment,
+            read_workspace_file,
+            term_create,
+            term_output,
+            term_wait,
+            term_kill,
+            term_release
         ])
         // Ohne das überlebt der Agent das Fenster und bleibt als Waise im
         // Prozessbaum stehen — beim Entwickeln nach zehn Neustarts zehn Agenten.
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().state::<terminal::Terminals>().kill_all();
                 stop_inner(window.app_handle().state::<Acp>().inner());
             }
         })
@@ -1449,16 +1789,98 @@ mod tests {
         // Und eine nicht ausführbare Datei desselben Namens.
         std::fs::write(root.join("faux"), "kein Programm").unwrap();
 
-        assert_eq!(scan_for(&root, "faux"), Some(ziel));
-        assert_eq!(scan_for(&root, "gibt-es-nicht"), None);
+        assert_eq!(scan_for(&root, "faux", |_| true), Some(ziel.clone()));
+        assert_eq!(scan_for(&root, "gibt-es-nicht", |_| true), None);
 
         // Zu tief: jenseits der Grenze wird nicht mehr gesucht.
         let tief = root.join("a/b/c/d/e/f");
         std::fs::create_dir_all(&tief).unwrap();
         std::fs::write(tief.join("tief"), "x").unwrap();
-        assert_eq!(scan_for(&root, "tief"), None);
+        assert_eq!(scan_for(&root, "tief", |_| true), None);
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn heimatsuche_nimmt_nur_einen_echten_bau() {
+        let root = std::env::temp_dir().join("jichi-desktop-test-bau");
+        std::fs::remove_dir_all(&root).ok();
+
+        // Ein fremdes Repository mit einer ausführbaren Datei namens jichi.
+        let fremd = root.join("fremd/jichi");
+        std::fs::create_dir_all(fremd.parent().unwrap()).unwrap();
+        std::fs::write(&fremd, "#!/bin/sh\n").unwrap();
+        // Ein gebauter Quellbaum.
+        let bau = root.join("quellen");
+        std::fs::create_dir_all(bau.join("include")).unwrap();
+        std::fs::create_dir_all(bau.join("src")).unwrap();
+        std::fs::write(bau.join("include/jc_version.h"), "").unwrap();
+        std::fs::write(bau.join("src/main.c"), "").unwrap();
+        std::fs::write(bau.join("jichi"), "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for p in [&fremd, &bau.join("jichi")] {
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+
+        assert!(!is_jichi_build(&fremd));
+        assert!(is_jichi_build(&bau.join("jichi")));
+        assert_eq!(scan_for(&root, "jichi", is_jichi_build), Some(bau.join("jichi")));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn vorschau_liest_nur_im_projekt() {
+        let root = std::env::temp_dir().join("jichi-desktop-test-vorschau");
+        std::fs::remove_dir_all(&root).ok();
+        let projekt = root.join("projekt");
+        std::fs::create_dir_all(projekt.join("src")).unwrap();
+        std::fs::write(projekt.join("src/a.txt"), "alt\n").unwrap();
+        std::fs::write(root.join("geheim.txt"), "nein").unwrap();
+
+        assert_eq!(read_workspace_file_in(&projekt, "src/a.txt").unwrap().as_deref(), Some("alt\n"));
+        assert_eq!(read_workspace_file_in(&projekt, "src/neu.txt").unwrap(), None);
+        assert!(read_workspace_file_in(&projekt, "../geheim.txt").is_err());
+        assert!(read_workspace_file_in(&projekt, root.join("geheim.txt").to_str().unwrap()).is_err());
+        assert!(read_workspace_file_in(&projekt, "../anderswo/neu.txt").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("geheim.txt"), projekt.join("link.txt")).unwrap();
+            assert!(read_workspace_file_in(&projekt, "link.txt").is_err(), "Verweis nach draussen");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn anhang_nur_als_kleine_textdatei() {
+        let root = std::env::temp_dir().join("jichi-desktop-test-anhang");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("notiz.md"), "# Hallo\n").unwrap();
+        std::fs::write(root.join("bild.png"), [0x89, b'P', b'N', b'G', 0, 1]).unwrap();
+        std::fs::write(root.join("gross.txt"), vec![b'x'; 300 * 1024]).unwrap();
+
+        let a = read_attachment_now(root.join("notiz.md").to_str().unwrap()).unwrap();
+        assert_eq!((a.name.as_str(), a.text.as_str()), ("notiz.md", "# Hallo\n"));
+        assert!(read_attachment_now(root.join("bild.png").to_str().unwrap()).is_err());
+        assert!(read_attachment_now(root.join("gross.txt").to_str().unwrap()).is_err());
+        assert!(read_attachment_now(root.to_str().unwrap()).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn ungueltiges_utf8_haelt_das_lesen_nicht_an() {
+        // Latin-1 in der Mitte: `lines()` hörte hier auf; gelesen werden muss bis zum Ende.
+        let roh: &[u8] = b"{\"a\":1}\r\nGr\xfc\xdfe\n\n{\"b\":2}";
+        let mut zeilen = Vec::new();
+        for_each_line(roh, |l| zeilen.push(l));
+        assert_eq!(zeilen.len(), 4, "{zeilen:?}");
+        assert_eq!(zeilen[0], "{\"a\":1}");
+        assert!(zeilen[1].starts_with("Gr") && zeilen[1].contains('\u{FFFD}'));
+        assert_eq!(zeilen[3], "{\"b\":2}");
     }
 
     #[test]
@@ -1529,7 +1951,7 @@ mod tests {
     #[test]
     #[ignore = "braucht ein gebautes jichi, Konfiguration und Netz"]
     fn doctor_liefert_einen_bericht() {
-        let bericht = doctor(
+        let bericht = doctor_now(
             "jichi".into(),
             Some(vec![EnvSpec {
                 name: "JICHI_API_KEY".into(),
@@ -1563,7 +1985,7 @@ mod tests {
     #[test]
     fn bereitschaft_beantwortet_die_eine_frage() {
         eigene_ablage();
-        let r = readiness();
+        let r = readiness_now(None);
         assert_eq!(r.key_env, "JICHI_API_KEY");
         // Fehlt irgendetwas, muss der erste Start verlangt werden.
         let fehlt = r.agent.is_none() || !r.config.exists || r.config.models.is_empty() || !r.key_stored;
@@ -1661,7 +2083,7 @@ mod tests {
         // Ein Baum, in dem es nichts zu finden gibt: die Suche muss innerhalb
         // ihres Zeitbudgets zurückkommen, nicht erst wenn sie fertig ist.
         let start = std::time::Instant::now();
-        let _ = scan_for(&home().unwrap(), "gibt-es-hier-ganz-sicher-nicht-4711");
+        let _ = scan_for(&home().unwrap(), "gibt-es-hier-ganz-sicher-nicht-4711", |_| true);
         let gebraucht = start.elapsed();
         assert!(
             gebraucht < SCAN_MAX_TIME + std::time::Duration::from_secs(2),
@@ -1672,7 +2094,7 @@ mod tests {
     #[test]
     fn startvorschlag_ist_vollstaendig() {
         eigene_ablage();
-        let launch = default_launch();
+        let launch = default_launch_now();
         assert!(!launch.program.is_empty());
         assert!(launch.args.contains(&"--acp".to_string()));
         // Ein absoluter Pfad ist Pflicht: ACP verlangt ihn für session/new.
