@@ -86,7 +86,7 @@ fn tools() -> Value {
         },
         {
             "name": "create_pdf",
-            "description": "Erstellt ein schlichtes PDF (A4) aus Markdown. Westeuropäische Zeichen (ä, ß, €) gehen; andere Schriften werden durch ? ersetzt — dann lieber create_docx.",
+            "description": "Erstellt ein PDF (A4) aus Markdown: Überschriften, Absätze mit **fett**, *kursiv* und `code`, Listen, Tabellen, Codeblöcke. Unicode-Schrift eingebettet: Deutsch, Russisch, Griechisch, ✓ ✗ ⚠ → ≤ € gehen; nur Chinesisch/Japanisch/Koreanisch und farbige Emoji nicht.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -179,7 +179,7 @@ pub fn call(root: &Path, name: &str, args: &Value) -> Result<String, String> {
             let file = documents::target(root, path, &["pdf"], overwrite)?;
             let ersetzt = documents::write_pdf(&file, args.get("title").and_then(Value::as_str), arg_str(args, "markdown")?)?;
             Ok(if ersetzt > 0 {
-                format!("{path} erstellt. {ersetzt} Zeichen außerhalb von WinAnsi wurden durch ? ersetzt — für andere Schriften create_docx verwenden.")
+                format!("{path} erstellt. {ersetzt} Zeichen hatten in der Schrift keine Form (z. B. Chinesisch) und wurden durch ? ersetzt — dafür create_docx verwenden.")
             } else {
                 format!("{path} erstellt.")
             })

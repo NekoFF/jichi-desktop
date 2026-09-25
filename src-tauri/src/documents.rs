@@ -789,37 +789,45 @@ pub fn write_csv(file: &Path, rows: &[Vec<serde_json::Value>]) -> Result<(), Str
     atomar(file, out.as_bytes())
 }
 
-// PDF — klein und ohne fremde Schriften
+// PDF — mit eingebetteter Unicode-Schrift
 
-/// Ein PDF aus Markdown, mit den 14 Standardschriften jedes PDF-Betrachters.
-///
-/// Bewusst schlicht: A4, Helvetica, Überschriften fett, Code in Courier,
-/// automatische Seitenumbrüche. Die Standardschriften können WinAnsi
-/// (Westeuropa: ä, ö, ü, ß, é, €); andere Zeichen werden durch „?“ ersetzt und
-/// das Ergebnis sagt, wie viele. Für ein gestaltetes Dokument ist Word das
-/// bessere Ziel.
+/// DejaVu: freie Lizenz (Bitstream Vera, Änderungen gemeinfrei), deckt
+/// Latein, Kyrillisch, Griechisch, Pfeile, ✓ ✗ ⚠ und mathematische Zeichen ab.
+/// Eingebettet wird je PDF nur, was es benutzt (Subsetting) — ein Brief
+/// wird dadurch nicht schwerer als ein paar Kilobyte.
+static FONT_REGULAR: &[u8] = include_bytes!("../fonts/DejaVuSans.ttf");
+static FONT_BOLD: &[u8] = include_bytes!("../fonts/DejaVuSans-Bold.ttf");
+static FONT_ITALIC: &[u8] = include_bytes!("../fonts/DejaVuSans-Oblique.ttf");
+static FONT_MONO: &[u8] = include_bytes!("../fonts/DejaVuSansMono.ttf");
+
+/// Ein PDF aus Markdown: A4, Überschriften, Absätze mit **fett**, *kursiv*
+/// und `code`, Listen, Tabellen mit Spalten, Codeblöcke, Seitenumbrüche.
+/// Liefert, wie viele Zeichen keine Glyphe hatten (z. B. farbige Emoji) und
+/// durch „?“ ersetzt wurden.
 pub fn write_pdf(file: &Path, title: Option<&str>, markdown: &str) -> Result<usize, String> {
-    let mut pdf = PdfText::new();
+    let mut pdf = PdfText::new()?;
     if let Some(t) = title.filter(|t| !t.trim().is_empty()) {
-        pdf.text(t, Font::Bold, 20.0, 0.0);
+        pdf.rich(&[(t.to_string(), F_BOLD)], 20.0, 0.0);
         pdf.gap(8.0);
     }
     for block in parse_markdown(markdown) {
         match block {
             Block::Heading(level, text) => {
                 pdf.gap(if level <= 2 { 10.0 } else { 6.0 });
-                pdf.text(&strip_inline(&text), Font::Bold, [17.0, 14.5, 12.5, 11.5, 11.0, 11.0][level.saturating_sub(1).min(5)], 0.0);
+                let size = [17.0, 14.5, 12.5, 11.5, 11.0, 11.0][level.saturating_sub(1).min(5)];
+                pdf.keep(size * 1.35 * 3.0); // eine Überschrift nie allein unten auf der Seite
+                pdf.rich(&spans(&text, F_BOLD), size, 0.0);
                 pdf.gap(3.0);
             }
             Block::Para(text) => {
-                pdf.text(&strip_inline(&text), Font::Regular, 10.5, 0.0);
+                pdf.rich(&spans(&text, F_REGULAR), 10.5, 0.0);
                 pdf.gap(6.0);
             }
-            Block::Bullet(text) => pdf.bullet("•", &strip_inline(&text)),
-            Block::Numbered(n, text) => pdf.bullet(&format!("{n}."), &strip_inline(&text)),
+            Block::Bullet(text) => pdf.bullet("•", &spans(&text, F_REGULAR)),
+            Block::Numbered(n, text) => pdf.bullet(&format!("{n}."), &spans(&text, F_REGULAR)),
             Block::Code(code) => {
                 for l in code.lines() {
-                    pdf.text(if l.is_empty() { " " } else { l }, Font::Mono, 9.0, 8.0);
+                    pdf.rich(&[(if l.is_empty() { " ".into() } else { l.to_string() }, F_MONO)], 9.0, 8.0);
                 }
                 pdf.gap(6.0);
             }
@@ -835,7 +843,7 @@ pub fn write_pdf(file: &Path, title: Option<&str>, markdown: &str) -> Result<usi
             }
         }
     }
-    let (bytes, ersetzt) = pdf.finish(title.unwrap_or("Dokument"));
+    let (bytes, ersetzt) = pdf.finish(title.unwrap_or("Dokument"))?;
     atomar(file, &bytes)?;
     Ok(ersetzt)
 }
@@ -844,47 +852,63 @@ fn strip_inline(text: &str) -> String {
     parse_inline(text).into_iter().map(|s| s.text).collect()
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Font {
-    Regular,
-    Bold,
-    Mono,
+const F_REGULAR: usize = 0;
+const F_BOLD: usize = 1;
+const F_ITALIC: usize = 2;
+const F_MONO: usize = 3;
+
+/// Inline-Auszeichnung auf die vier Schnitte abbilden.
+fn spans(text: &str, base: usize) -> Vec<(String, usize)> {
+    parse_inline(text)
+        .into_iter()
+        .map(|s| {
+            let f = if s.code {
+                F_MONO
+            } else if s.bold || base == F_BOLD {
+                F_BOLD
+            } else if s.italic {
+                F_ITALIC
+            } else {
+                base
+            };
+            (s.text, f)
+        })
+        .collect()
 }
 
-/// Näherungsweise Breiten der Helvetica in 1/1000 em — genug für einen
-/// linksbündigen Umbruch, der nicht über den Rand läuft.
-fn helvetica_width(c: char, bold: bool) -> f32 {
-    let w = match c {
-        ' ' | 'i' | 'j' | 'l' | '.' | ',' | ':' | ';' | '!' | '\'' | '|' => 278.0,
-        'f' | 't' | 'r' | '(' | ')' | '[' | ']' | '-' | '/' => 333.0,
-        'm' => 833.0,
-        'w' => 722.0,
-        'M' => 833.0,
-        'W' => 944.0,
-        'A'..='Z' => 690.0,
-        '0'..='9' => 556.0,
-        _ => 556.0,
-    };
-    if bold { w * 1.06 } else { w }
+struct Schrift {
+    name: &'static str,
+    data: &'static [u8],
+    face: ttf_parser::Face<'static>,
+    remap: subsetter::GlyphRemapper,
+    /// neue Glyphen-Id → (Zeichen, Vorschub in Schrifteinheiten)
+    used: std::collections::BTreeMap<u16, (char, u16)>,
+    upem: f32,
+    italic: bool,
 }
 
-/// Ein Zeichen in WinAnsi (CP1252), `None` wenn es dort keins gibt.
-fn winansi(c: char) -> Option<u8> {
-    let u = c as u32;
-    if (0x20..0x7f).contains(&u) || (0xa0..=0xff).contains(&u) {
-        return Some(u as u8);
+impl Schrift {
+    fn new(name: &'static str, data: &'static [u8], italic: bool) -> Result<Self, String> {
+        let face = ttf_parser::Face::parse(data, 0).map_err(|e| format!("Schrift {name}: {e}"))?;
+        let upem = face.units_per_em() as f32;
+        Ok(Schrift { name, data, face, remap: subsetter::GlyphRemapper::new(), used: Default::default(), upem, italic })
     }
-    Some(match c {
-        '€' => 0x80, '‚' => 0x82, '„' => 0x84, '…' => 0x85, '†' => 0x86, '‡' => 0x87,
-        '‰' => 0x89, 'Š' => 0x8a, '‹' => 0x8b, 'Œ' => 0x8c, 'Ž' => 0x8e, '‘' => 0x91,
-        '’' => 0x92, '“' => 0x93, '”' => 0x94, '•' => 0x95, '–' => 0x96, '—' => 0x97,
-        '™' => 0x99, 'š' => 0x9a, '›' => 0x9b, 'œ' => 0x9c, 'ž' => 0x9e, 'Ÿ' => 0x9f,
-        '\t' => b' ',
-        _ => return None,
-    })
+
+    /// Breite eines Zeichens in 1/1000 em — genau, aus der Schrift.
+    fn width(&self, c: char) -> f32 {
+        let gid = self.face.glyph_index(c).or_else(|| self.face.glyph_index('?'));
+        gid.and_then(|g| self.face.glyph_hor_advance(g)).unwrap_or(0) as f32 * 1000.0 / self.upem
+    }
+}
+
+/// Zeichen, die nichts zeichnen und einfach wegfallen: Variations-Selektoren
+/// (die „Emoji-Darstellung“ hinter ⚠️) und Verbinder.
+fn unsichtbar(c: char) -> bool {
+    matches!(c, '\u{fe00}'..='\u{fe0f}' | '\u{200d}' | '\u{200b}' | '\u{2060}')
 }
 
 struct PdfText {
+    fonts: Vec<Schrift>,
     pages: Vec<String>,
     page: String,
     y: f32,
@@ -896,8 +920,19 @@ const PAGE_H: f32 = 842.0;
 const MARGIN: f32 = 64.0;
 
 impl PdfText {
-    fn new() -> Self {
-        PdfText { pages: Vec::new(), page: String::new(), y: PAGE_H - MARGIN, replaced: 0 }
+    fn new() -> Result<Self, String> {
+        Ok(PdfText {
+            fonts: vec![
+                Schrift::new("DejaVuSans", FONT_REGULAR, false)?,
+                Schrift::new("DejaVuSans-Bold", FONT_BOLD, false)?,
+                Schrift::new("DejaVuSans-Oblique", FONT_ITALIC, true)?,
+                Schrift::new("DejaVuSansMono", FONT_MONO, false)?,
+            ],
+            pages: Vec::new(),
+            page: String::new(),
+            y: PAGE_H - MARGIN,
+            replaced: 0,
+        })
     }
 
     fn need(&mut self, h: f32) {
@@ -907,75 +942,137 @@ impl PdfText {
         }
     }
 
+    /// Platz für `h` freihalten, sonst lieber gleich umbrechen.
+    fn keep(&mut self, h: f32) {
+        self.need(h);
+    }
+
     fn gap(&mut self, h: f32) {
         self.y -= h;
     }
 
-    fn encode(&mut self, s: &str) -> String {
-        let mut out = String::new();
+    fn width(&self, s: &str, font: usize) -> f32 {
+        s.chars().filter(|c| !unsichtbar(*c)).map(|c| self.fonts[font].width(c)).sum()
+    }
+
+    /// Text als Folge neuer Glyphen-Ids (Hex für `Tj`). Fehlt eine Glyphe, wird
+    /// „?“ gesetzt und gezählt.
+    fn encode(&mut self, s: &str, font: usize) -> String {
+        let mut out = String::from("<");
         for c in s.chars() {
-            let b = winansi(c).unwrap_or_else(|| {
-                self.replaced += 1;
-                b'?'
-            });
-            match b {
-                b'(' | b')' | b'\\' => {
-                    out.push('\\');
-                    out.push(b as char);
-                }
-                0x20..=0x7e => out.push(b as char),
-                _ => out.push_str(&format!("\\{:03o}", b)),
+            if unsichtbar(c) {
+                continue;
             }
+            let f = &mut self.fonts[font];
+            let (gid, ch) = match f.face.glyph_index(c) {
+                Some(g) => (g, c),
+                None => {
+                    self.replaced += 1;
+                    (f.face.glyph_index('?').unwrap_or(ttf_parser::GlyphId(0)), '?')
+                }
+            };
+            let neu = f.remap.remap(gid.0);
+            let adv = f.face.glyph_hor_advance(gid).unwrap_or(0);
+            f.used.entry(neu).or_insert((ch, adv));
+            out.push_str(&format!("{neu:04X}"));
         }
+        out.push('>');
         out
     }
 
-    fn line(&mut self, s: &str, font: Font, size: f32, x: f32) {
-        let lead = size * 1.35;
+    /// Eine Zeile aus Stücken verschiedener Schnitte ausgeben.
+    fn line(&mut self, segs: &[(String, usize)], size: f32, x: f32) {
+        let lead = size * 1.38;
         self.need(lead);
         self.y -= lead;
-        let f = match font {
-            Font::Regular => "F1",
-            Font::Bold => "F2",
-            Font::Mono => "F3",
-        };
-        let enc = self.encode(s);
-        self.page.push_str(&format!("BT /{f} {size} Tf {:.1} {:.1} Td ({enc}) Tj ET\n", MARGIN + x, self.y));
+        let mut ops = format!("BT {:.1} {:.1} Td ", MARGIN + x, self.y);
+        for (text, font) in segs {
+            if text.is_empty() {
+                continue;
+            }
+            let hex = self.encode(text, *font);
+            ops.push_str(&format!("/F{font} {size} Tf {hex} Tj "));
+        }
+        ops.push_str("ET\n");
+        self.page.push_str(&ops);
     }
 
-    /// Umbrechen auf die Breite zwischen den Rändern.
-    fn text(&mut self, s: &str, font: Font, size: f32, x: f32) {
-        let max = PAGE_W - 2.0 * MARGIN - x;
-        let width = |w: &str| -> f32 {
-            if font == Font::Mono {
-                w.chars().count() as f32 * 600.0 * size / 1000.0
-            } else {
-                w.chars().map(|c| helvetica_width(c, font == Font::Bold)).sum::<f32>() * size / 1000.0
-            }
-        };
-        for para in s.split('\n') {
-            let mut line = String::new();
-            for word in para.split(' ') {
-                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-                if width(&cand) > max && !line.is_empty() {
-                    self.line(&line, font, size, x);
-                    line = word.to_string();
-                } else {
-                    line = cand;
+    /// Umbrechen auf die Breite zwischen den Rändern — wortweise, über
+    /// Schnittwechsel hinweg.
+    fn rich(&mut self, segs: &[(String, usize)], size: f32, x: f32) {
+        let max = (PAGE_W - 2.0 * MARGIN - x) * 1000.0 / size;
+        // In Wörter zerlegen, jedes mit seinem Schnitt und dem Raum davor.
+        let mut words: Vec<(String, usize, bool)> = Vec::new(); // (Wort, Schnitt, Leerraum davor)
+        let mut breaks: Vec<usize> = Vec::new(); // harte Umbrüche vor Wort i
+        let mut space_before = false;
+        for (text, font) in segs {
+            for (li, part) in text.split('\n').enumerate() {
+                if li > 0 {
+                    breaks.push(words.len());
+                    space_before = false;
+                }
+                let mut buf = String::new();
+                for c in part.chars() {
+                    if c == ' ' || c == '\t' {
+                        if !buf.is_empty() {
+                            words.push((std::mem::take(&mut buf), *font, space_before));
+                        }
+                        space_before = true;
+                    } else {
+                        buf.push(c);
+                    }
+                }
+                if !buf.is_empty() {
+                    words.push((buf, *font, space_before));
+                    space_before = false;
                 }
             }
-            self.line(&line, font, size, x);
         }
+        let mut line: Vec<(String, usize)> = Vec::new();
+        let mut w = 0.0f32;
+        for (i, (word, font, sp)) in words.into_iter().enumerate() {
+            if breaks.contains(&i) && !line.is_empty() {
+                self.line(&line, size, x);
+                line.clear();
+                w = 0.0;
+            }
+            let lead = if sp && !line.is_empty() { " " } else { "" };
+            // Der Zwischenraum gehört zum Schnitt *davor* — ein Leerzeichen in
+            // Courier vor `code` wäre doppelt so breit wie im Fließtext.
+            let lead_font = line.last().map(|(_, f)| *f).unwrap_or(font);
+            let add = self.width(lead, lead_font) + self.width(&word, font);
+            // Ohne Leerraum davor ist es dasselbe Wort (`code`. oder **fett**,):
+            // dort wird nie umgebrochen.
+            let geklebt = !sp && !line.is_empty();
+            if w + add > max && !line.is_empty() && !geklebt {
+                self.line(&line, size, x);
+                line.clear();
+                w = 0.0;
+                w += self.width(&word, font);
+                line.push((word, font));
+                continue;
+            }
+            w += add;
+            if let Some((t, _)) = line.last_mut() {
+                t.push_str(lead);
+            }
+            match line.last_mut() {
+                Some((t, f)) if *f == font => t.push_str(&word),
+                _ => line.push((word, font)),
+            }
+        }
+        self.line(&line, size, x);
     }
 
-    fn bullet(&mut self, mark: &str, text: &str) {
+    fn bullet(&mut self, mark: &str, segs: &[(String, usize)]) {
         let before = self.y;
-        self.text(text, Font::Regular, 10.5, 16.0);
-        // Die Marke auf die erste Zeile setzen.
-        let first = before - 10.5 * 1.35;
-        if first > MARGIN {
-            let enc = self.encode(mark);
-            self.page.push_str(&format!("BT /F1 10.5 Tf {:.1} {:.1} Td ({enc}) Tj ET\n", MARGIN + 2.0, first));
+        let first_page = self.pages.len();
+        self.rich(segs, 10.5, 16.0);
+        // Die Marke auf die erste Zeile setzen — auf derselben Seite.
+        if self.pages.len() == first_page {
+            let first = before - 10.5 * 1.38;
+            let hex = self.encode(mark, F_REGULAR);
+            self.page.push_str(&format!("BT {:.1} {first:.1} Td /F{F_REGULAR} 10.5 Tf {hex} Tj ET\n", MARGIN + 3.0));
         }
         self.gap(2.0);
     }
@@ -990,43 +1087,43 @@ impl PdfText {
             return;
         }
         let avail = PAGE_W - 2.0 * MARGIN;
-        let breite = |s: &str, bold: bool| s.chars().map(|c| helvetica_width(c, bold)).sum::<f32>() * SIZE / 1000.0;
+        let breite = |me: &Self, s: &str, bold: bool| me.width(s, if bold { F_BOLD } else { F_REGULAR }) * SIZE / 1000.0;
         let mut want: Vec<f32> = (0..cols)
             .map(|c| {
                 rows.iter()
                     .enumerate()
-                    .map(|(i, r)| r.get(c).map(|s| breite(s, i == 0)).unwrap_or(0.0))
+                    .map(|(i, r)| r.get(c).map(|s| breite(self, s, i == 0)).unwrap_or(0.0))
                     .fold(24.0, f32::max)
                     + 2.0 * PAD
             })
             .collect();
         let sum: f32 = want.iter().sum();
         if sum > avail {
-            // Zu breit: Spalten anteilig schmaler, keine unter 50 pt.
             for w in &mut want {
                 *w = (*w * avail / sum).max(50.0);
             }
         }
-        let wrap = |s: &str, max: f32, bold: bool| -> Vec<String> {
-            let mut out = Vec::new();
-            let mut line = String::new();
-            for word in s.split_whitespace() {
-                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
-                if breite(&cand, bold) > max && !line.is_empty() {
-                    out.push(std::mem::replace(&mut line, word.to_string()));
-                } else {
-                    line = cand;
-                }
-            }
-            out.push(line);
-            out
-        };
         let lead = SIZE * 1.3;
         let right = MARGIN + want.iter().sum::<f32>();
         for (i, r) in rows.iter().enumerate() {
             let bold = i == 0;
+            let font = if bold { F_BOLD } else { F_REGULAR };
             let cells: Vec<Vec<String>> = (0..cols)
-                .map(|c| wrap(r.get(c).map(String::as_str).unwrap_or(""), want[c] - 2.0 * PAD, bold))
+                .map(|c| {
+                    let max = want[c] - 2.0 * PAD;
+                    let mut out = Vec::new();
+                    let mut line = String::new();
+                    for word in r.get(c).map(String::as_str).unwrap_or("").split_whitespace() {
+                        let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                        if breite(self, &cand, bold) > max && !line.is_empty() {
+                            out.push(std::mem::replace(&mut line, word.to_string()));
+                        } else {
+                            line = cand;
+                        }
+                    }
+                    out.push(line);
+                    out
+                })
                 .collect();
             let lines = cells.iter().map(Vec::len).max().unwrap_or(1).max(1);
             let h = lines as f32 * lead + 2.0 * PAD - 2.0;
@@ -1038,10 +1135,9 @@ impl PdfText {
             let mut x = MARGIN;
             for (c, cell) in cells.iter().enumerate() {
                 for (k, l) in cell.iter().enumerate() {
-                    let enc = self.encode(l);
-                    let f = if bold { "F2" } else { "F1" };
+                    let hex = self.encode(l, font);
                     let baseline = top - PAD - SIZE - k as f32 * lead + 2.0;
-                    self.page.push_str(&format!("BT /{f} {SIZE} Tf {:.1} {:.1} Td ({enc}) Tj ET\n", x + PAD, baseline));
+                    self.page.push_str(&format!("BT /F{font} {SIZE} Tf {:.1} {baseline:.1} Td {hex} Tj ET\n", x + PAD));
                 }
                 x += want[c];
             }
@@ -1055,34 +1151,113 @@ impl PdfText {
         self.page.push_str(&format!("0.75 G 0.6 w {MARGIN} {:.1} m {:.1} {:.1} l S 0 G\n", self.y, PAGE_W - MARGIN, self.y));
     }
 
-    fn finish(mut self, title: &str) -> (Vec<u8>, usize) {
+    fn finish(mut self, title: &str) -> Result<(Vec<u8>, usize), String> {
+        use std::io::Write as _;
+        let deflate = |data: &[u8]| -> Vec<u8> {
+            let mut e = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            let _ = e.write_all(data);
+            e.finish().unwrap_or_default()
+        };
+        let text_str = |s: &str| -> String {
+            // PDF-Textstring als UTF-16BE mit BOM — so gehen Umlaute im Titel.
+            let mut hex = String::from("<FEFF");
+            for u in s.encode_utf16() {
+                hex.push_str(&format!("{u:04X}"));
+            }
+            hex.push('>');
+            hex
+        };
+
         if !self.page.is_empty() || self.pages.is_empty() {
             self.pages.push(std::mem::take(&mut self.page));
         }
-        let n = self.pages.len();
-        // Objekte: 1 Katalog, 2 Seiten, 3–5 Schriften, 6 Info, dann je Seite Seite + Inhalt.
-        let mut objs: Vec<String> = Vec::new();
-        objs.push("<< /Type /Catalog /Pages 2 0 R >>".into());
-        let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 7 + 2 * i)).collect();
-        objs.push(format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")));
-        for base in ["Helvetica", "Helvetica-Bold", "Courier"] {
-            objs.push(format!("<< /Type /Font /Subtype /Type1 /BaseFont /{base} /Encoding /WinAnsiEncoding >>"));
+        let title_hex = text_str(title);
+
+        // Objekte sammeln; Nummern ergeben sich aus der Reihenfolge.
+        let mut objs: Vec<Vec<u8>> = Vec::new();
+        let mut add = |o: Vec<u8>| -> usize {
+            objs.push(o);
+            objs.len()
+        };
+        let stream = |dict: String, data: Vec<u8>| -> Vec<u8> {
+            let mut o = format!("<< {dict} /Length {} >>\nstream\n", data.len()).into_bytes();
+            o.extend_from_slice(&data);
+            o.extend_from_slice(b"\nendstream");
+            o
+        };
+
+        let catalog = add(Vec::new()); // später gefüllt
+        let pages_id = add(Vec::new());
+        let info = add(format!("<< /Title {title_hex} /Producer (jichi Desktop) >>").into_bytes());
+
+        // Schriften: nur die benutzten, jede als Subset.
+        let mut font_res = String::new();
+        let fonts = std::mem::take(&mut self.fonts);
+        for (i, f) in fonts.iter().enumerate() {
+            if f.used.is_empty() {
+                continue;
+            }
+            let sub = subsetter::subset(f.data, 0, &f.remap).map_err(|e| format!("Schrift {}: {e:?}", f.name))?;
+            let font_file = add(stream(format!("/Filter /FlateDecode /Length1 {}", sub.len()), deflate(&sub)));
+            let s = 1000.0 / f.upem;
+            let bb = f.face.global_bounding_box();
+            let tag = format!("JICH{}{}+{}", (b'A' + i as u8) as char, (b'A' + i as u8) as char, f.name);
+            let flags = if f.name.contains("Mono") { 1 | 32 } else { 32 } + if f.italic { 64 } else { 0 };
+            let descriptor = add(format!(
+                "<< /Type /FontDescriptor /FontName /{tag} /Flags {flags} /FontBBox [{:.0} {:.0} {:.0} {:.0}] /ItalicAngle {} /Ascent {:.0} /Descent {:.0} /CapHeight {:.0} /StemV 80 /FontFile2 {font_file} 0 R >>",
+                bb.x_min as f32 * s, bb.y_min as f32 * s, bb.x_max as f32 * s, bb.y_max as f32 * s,
+                if f.italic { -11 } else { 0 },
+                f.face.ascender() as f32 * s, f.face.descender() as f32 * s,
+                f.face.capital_height().unwrap_or(f.face.ascender()) as f32 * s,
+            ).into_bytes());
+            // Breiten je neuer Id; Lücken (etwa .notdef) mit 0.
+            let max_id = f.used.keys().max().copied().unwrap_or(0);
+            let widths: Vec<String> = (0..=max_id)
+                .map(|g| format!("{:.0}", f.used.get(&g).map(|(_, a)| *a as f32 * s).unwrap_or(0.0)))
+                .collect();
+            let cid = add(format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{tag} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {descriptor} 0 R /W [0 [{}]] /CIDToGIDMap /Identity >>",
+                widths.join(" ")
+            ).into_bytes());
+            // Rückweg für Kopieren und Suchen: Glyphe → Unicode.
+            let mut cmap = String::from("/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <0000> <FFFF> endcodespacerange\n");
+            let entries: Vec<_> = f.used.iter().collect();
+            for chunk in entries.chunks(100) {
+                cmap.push_str(&format!("{} beginbfchar\n", chunk.len()));
+                for (g, (c, _)) in chunk {
+                    let mut buf = [0u16; 2];
+                    let utf16: String = c.encode_utf16(&mut buf).iter().map(|u| format!("{u:04X}")).collect();
+                    cmap.push_str(&format!("<{g:04X}> <{utf16}>\n"));
+                }
+                cmap.push_str("endbfchar\n");
+            }
+            cmap.push_str("endcmap CMapName currentdict /CMap defineresource pop end end");
+            let to_unicode = add(stream("/Filter /FlateDecode".into(), deflate(cmap.as_bytes())));
+            let type0 = add(format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /{tag} /Encoding /Identity-H /DescendantFonts [{cid} 0 R] /ToUnicode {to_unicode} 0 R >>"
+            ).into_bytes());
+            font_res.push_str(&format!("/F{i} {type0} 0 R "));
         }
-        let title_enc = self.encode(title);
-        objs.push(format!("<< /Title ({title_enc}) /Producer (jichi Desktop) >>"));
+
         let pages = std::mem::take(&mut self.pages);
-        for (i, content) in pages.iter().enumerate() {
-            objs.push(format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {} 0 R >>",
-                8 + 2 * i
-            ));
-            objs.push(format!("<< /Length {} >>\nstream\n{content}endstream", content.len()));
+        let mut kids = Vec::new();
+        for content in &pages {
+            let c = add(stream("/Filter /FlateDecode".into(), deflate(content.as_bytes())));
+            let page = add(format!(
+                "<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] /Resources << /Font << {font_res}>> >> /Contents {c} 0 R >>"
+            ).into_bytes());
+            kids.push(format!("{page} 0 R"));
         }
-        let mut out: Vec<u8> = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec();
+        objs[catalog - 1] = format!("<< /Type /Catalog /Pages {pages_id} 0 R >>").into_bytes();
+        objs[pages_id - 1] = format!("<< /Type /Pages /Kids [{}] /Count {} >>", kids.join(" "), kids.len()).into_bytes();
+
+        let mut out: Vec<u8> = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n".to_vec();
         let mut offsets = Vec::new();
         for (i, o) in objs.iter().enumerate() {
             offsets.push(out.len());
-            out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+            out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+            out.extend_from_slice(o);
+            out.extend_from_slice(b"\nendobj\n");
         }
         let xref = out.len();
         out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
@@ -1090,9 +1265,9 @@ impl PdfText {
             out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
         }
         out.extend_from_slice(
-            format!("trailer\n<< /Size {} /Root 1 0 R /Info 6 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes(),
+            format!("trailer\n<< /Size {} /Root {catalog} 0 R /Info {info} 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes(),
         );
-        (out, self.replaced)
+        Ok((out, self.replaced))
     }
 }
 
@@ -1158,12 +1333,16 @@ mod tests {
     fn pdf_hin_und_zurueck() {
         let d = tmp("pdf");
         let f = d.join("brief.pdf");
-        let ersetzt = write_pdf(&f, Some("Brief"), &format!("{MD}\nGrüße aus Gießen — 5 €. Привет")).unwrap();
-        assert_eq!(ersetzt, 6, "sechs kyrillische Zeichen gehen nicht in WinAnsi");
+        let ersetzt = write_pdf(&f, Some("Brief: Grüße"), &format!("{MD}\nGrüße aus Gießen — 5 €. Привет, мир! ✓ erledigt ⚠️ Achtung α≤β → 😀 漢")).unwrap();
+        assert_eq!(ersetzt, 1, "nur das chinesische Zeichen hat in DejaVu keine Glyphe");
         let text = read(&f, &Auswahl::default()).unwrap();
         assert!(text.contains("[PDF, 1 Seiten]"), "{text}");
         assert!(text.contains("Bericht"), "{text}");
         assert!(text.contains("Grüße aus Gießen"), "{text}");
+        assert!(text.contains("Привет, мир!"), "Kyrillisch kommt als Text zurück: {text}");
+        assert!(text.contains('✓') && text.contains('→'), "{text}");
+        let groesse = std::fs::metadata(&f).unwrap().len();
+        assert!(groesse < 120_000, "Subsetting hält das PDF klein: {groesse} Bytes");
     }
 
     #[test]
