@@ -1,0 +1,68 @@
+/**
+ * Der Kern — das ist alles, was eine Oberfläche importieren muss.
+ *
+ *     import { agent, statusLabel, type Snapshot } from "./core/index.ts";
+ *
+ * Die Aufteilung dahinter:
+ *
+ *   protocol.ts   ACP als Typen. Deklarativ, keine Laufzeit.
+ *   jsonrpc.ts    JSON-RPC 2.0: Rahmen, Zuordnung, Antwortpflicht.
+ *   transport.ts  die einzige Stelle, die Tauri kennt.
+ *   state.ts      Ansichtsmodell und reine Übergänge darauf.
+ *   agent.ts      der Agent als ein Objekt — die Fläche für die Oberfläche.
+ *   settings.ts   was gespeichert wird, und was ausdrücklich nicht.
+ *   labels.ts     deutsche Wörter und Töne, damit Komponenten ACP nicht kennen.
+ */
+
+export { Agent, agent } from "./agent.ts";
+export { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
+export {
+  clearStored,
+  formatArgs,
+  mergeConfig,
+  parseArgs,
+  readStored,
+  resolveConfig,
+  store,
+  type LaunchConfig,
+} from "./settings.ts";
+export {
+  blockToText,
+  emptySnapshot,
+  MAX_DIAGNOSTICS,
+  MAX_TOOL_OUTPUT,
+  type MessageItem,
+  type MessageRole,
+  type NoticeItem,
+  type PendingPermission,
+  type Snapshot,
+  type Status,
+  type ToolDiff,
+  type ToolItem,
+  type TranscriptItem,
+} from "./state.ts";
+export {
+  permissionTone,
+  relativeTime,
+  roleLabel,
+  shortPath,
+  statusLabel,
+  statusTone,
+  toolKindLabel,
+  toolKindTone,
+  toolStatusLabel,
+  toolStatusTone,
+  type Tone,
+} from "./labels.ts";
+export {
+  CLIENT_CAPABILITIES,
+  Method,
+  PROTOCOL_VERSION,
+  type AgentCapabilities,
+  type ContentBlock,
+  type PermissionOption,
+  type StopReason,
+  type ToolKind,
+  type ToolStatus,
+} from "./protocol.ts";
+export { tauriTransport, type EnvSpec, type StoredSession, type Transport } from "./transport.ts";

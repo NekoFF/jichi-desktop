@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>jichi</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="app">
+      <!-- ── Seitenleiste ───────────────────────────────────────────────── -->
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">jichi</span>
+          <span class="brand-sub">desktop</span>
+        </div>
+
+        <button id="new-chat" class="new-chat">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>
+          Neuer Chat
+        </button>
+
+        <div class="section-label">Sitzungen</div>
+        <div id="session-list" class="session-list"></div>
+
+        <button id="open-settings" class="settings-btn">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="2.4"/>
+            <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8L3.4 3.4"/>
+          </svg>
+          Einstellungen
+        </button>
+      </aside>
+
+      <!-- ── Hauptbereich ───────────────────────────────────────────────── -->
+      <main class="main">
+        <header class="topbar">
+          <div class="status">
+            <span id="status-dot" class="dot"></span>
+            <span id="status-text">nicht verbunden</span>
+          </div>
+          <div id="cwd-label" class="cwd"></div>
+          <button id="cancel-turn" class="cancel" hidden>Abbrechen</button>
+        </header>
+
+        <div id="transcript" class="transcript">
+          <div class="empty">
+            <div class="empty-mark">jichi</div>
+            <p>Der Agent läuft als eigener Prozess und spricht ACP über stdin/stdout.</p>
+            <p class="empty-hint">Starte einen Chat, um die Verbindung aufzubauen.</p>
+          </div>
+        </div>
+
+        <form id="composer" class="composer">
+          <textarea
+            id="prompt"
+            rows="1"
+            placeholder="Frag jichi …   (Enter senden · Umschalt+Enter neue Zeile)"
+          ></textarea>
+          <button id="send" type="submit" aria-label="Senden">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h10M8 4l4 4-4 4"/></svg>
+          </button>
+        </form>
+      </main>
+    </div>
+
+    <!-- ── Einstellungen ─────────────────────────────────────────────────── -->
+    <div id="settings" class="overlay" hidden>
+      <div class="dialog">
+        <h2>Einstellungen</h2>
+
+        <label>
+          Programm
+          <input id="cfg-program" type="text" spellcheck="false" />
+        </label>
+
+        <label>
+          Argumente <span class="muted">(durch Leerzeichen getrennt)</span>
+          <input id="cfg-args" type="text" spellcheck="false" />
+        </label>
+
+        <label>
+          Arbeitsverzeichnis <span class="muted">(leer = Standard)</span>
+          <input id="cfg-cwd" type="text" spellcheck="false" placeholder="/Pfad/zum/Projekt" />
+        </label>
+
+        <label>
+          API-Schlüssel <span class="muted">(Pfad zur Datei — der Inhalt wird nie gespeichert)</span>
+          <input id="cfg-key" type="text" spellcheck="false" placeholder="~/.config/jlu/apikey.txt" />
+        </label>
+
+        <p id="cfg-hint" class="hint"></p>
+
+        <details>
+          <summary class="muted">Diagnose (stderr des Agenten)</summary>
+          <pre id="cfg-diag" class="tool-out"></pre>
+        </details>
+
+        <div class="dialog-actions">
+          <button id="cfg-cancel" type="button" class="ghost">Schließen</button>
+          <button id="cfg-save" type="button" class="primary">Speichern &amp; neu verbinden</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
