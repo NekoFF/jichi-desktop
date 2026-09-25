@@ -1,5 +1,11 @@
 # Auftrag: Oberfläche nach dem JLU Design System
 
+> **Archiv, kein aktueller Auftrag.** Die Arbeit aus `design/jlu` wurde in
+> `main` übernommen. Für neue Arbeit zuerst
+> [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md) lesen. Insbesondere sind die
+> Aussagen unten über Worktree-Grenzen, `src/main.ts`, Schlüsselbund und
+> Testzahlen überholt.
+
 ## Wo du arbeitest
 
 ```

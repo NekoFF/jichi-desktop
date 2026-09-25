@@ -1,59 +1,34 @@
-# Arbeitsteilung in diesem Projekt
+# Работа над jichi Desktop
 
-An diesem Projekt arbeiten zwei Beteiligte gleichzeitig. Die Grenze ist scharf
-und gilt in beide Richtungen.
+Сначала прочитай [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md). Это
+актуальная передача контекста: цель продукта, решения пользователя,
+архитектура, визуальные ориентиры, ссылки и команды. После этого проверь
+`git status` и код. Старый `docs/AUFTRAG_OBERFLAECHE.md` описывает уже
+завершённую работу в отдельном worktree и не является текущим заданием.
 
-## Wem was gehört
+## Рабочее дерево
 
-| Bereich | Eigentümer | Regel |
-| --- | --- | --- |
-| `src-tauri/**` | **Kern** | für die Oberfläche gesperrt |
-| `src/core/**` | **Kern** | für die Oberfläche gesperrt |
-| `docs/CONTRACT.md` | **Kern** | beschreibt die Naht; nur der Kern ändert sie |
-| `index.html`, `src/main.tsx`, `src/styles.css` | **Kern** | seit der Übernahme der Gestaltung |
-| `README.md` | Kern | |
+Работай в `/Users/neko/FOLDER1HOME/projects/jichi-desktop` на `main`, если
+пользователь не задал другое место. Ядро и интерфейс теперь живут вместе.
+Старый `jichi-desktop-design` не является активной веткой дизайна. Не
+откатывай чужие незакоммиченные изменения; сначала читай diff.
 
-Die Arbeitsteilung von vorher ist aufgehoben: Kern **und** Oberfläche liegen
-wieder in einer Hand, auf `main`. Der Zweig `design/jlu` ist zusammengeführt.
+## Границы реализации
 
-**Fehlt der Oberfläche etwas aus dem Kern, wird es im Kern ergänzt und in
-`docs/CONTRACT.md` eingetragen — nicht daran vorbeigearbeitet.**
+- React-компоненты обращаются к агенту через `src/core/index.ts`. Прямые
+  `invoke`, `listen` и импорт `@tauri-apps/api` в компонентах не нужны.
+- `src/core/transport.ts` — единственный TypeScript-слой Tauri. Если для UI
+  не хватает функции, добавь её в ядро явно и обнови контракт.
+- Используй семантические цветовые токены JLU Design System. Пакет даёт
+  цвета и тему, но не диктует размеры и раскладку desktop-окна.
+- Сохраняй функции в обоих layout-вариантах (`floating` и `classic`).
+  Визуальная тема не должна менять состав возможностей.
+- Новый API-ключ передаётся только через `agent.setup(key)` и не попадает в
+  `localStorage`, логи или состояние. Текущая Rust-реализация хранит его в
+  защищённом файле приложения, **не в macOS Keychain**.
+- Первый запуск — один системный window; форма поверх размытого настоящего
+  интерфейса. Не создавай второе нативное окно и вторые кнопки macOS.
 
-## Regeln für die Oberfläche
-
-1. `import { agent } from "./core/index.ts"` ist der einzige Zugang. Kein
-   `invoke`, kein `listen`, kein `@tauri-apps/api` in einer Komponente.
-2. Keine festen Farben. Nur die semantischen Token des JLU Design System
-   (`--color-surface`, `--color-on-surface`, `--color-outline-variant`, …),
-   nie ein `#123456` im Regelwerk.
-3. **Maße kommen nicht aus dem Design System.** Dessen Komponenten folgen
-   Material 3 und sind für den Finger gerastert (Zeilen um 48 px); auf dem
-   Schreibtisch wirkt das wie eine Fernsehoberfläche. Diese Anwendung baut ihr
-   Gerüst deshalb selbst und hält die Dichte eines Fensterprogramms: Zeilen
-   30 px, Bedienschrift 13 px, Text 14 px. Alle Maße stehen in `:root` von
-   `src/styles.css` — dort ändern, nirgends sonst.
-4. Kein Regelwerk, das sich an die innere Struktur einer fremden Komponente
-   klammert (`> div[id] > div:first-child`). Das hält bis zu deren nächster
-   Fassung.
-5. Der API-Schlüssel geht ausschliesslich durch `agent.setup(key)` und
-   verschwindet damit in der geschützten Ablage. Kein zweites Eingabefeld,
-   keine Anzeige, keine Kopie.
-
-## Vor jeder Übergabe
-
-```sh
-npm run check        # Typen + 42 Prüfungen des Kerns
-npm run check:rust   # 11 Prüfungen der Rust-Seite
-```
-
-Beide müssen grün sein. Sie laufen ohne Fenster, ohne Modell und ohne
-installiertes jichi. Geprüft wird am **Rückgabewert**, nicht an der Ausgabe.
-
-Bleibt `npm run check` rot, wurde der Kern angefasst. Dann zurücknehmen.
-
-## Zweige
-
-- `main` — Kern. Lauffähig, mit der Referenzansicht.
-- `design/jlu` — Oberfläche. Eigener Arbeitsbaum, siehe `docs/AUFTRAG_OBERFLAECHE.md`.
-
-Nie im fremden Arbeitsbaum arbeiten und nie den fremden Zweig auschecken.
+Перед передачей запускай `npm run check`, `npm run check:rust` и
+`npm run build`. Для живой проверки используй `npm run tauri dev`:
+в обычной вкладке браузера нет Tauri bridge.

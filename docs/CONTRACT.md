@@ -1,11 +1,16 @@
 # Vertrag zwischen Kern und Oberfläche
 
+**Aktueller Projektüberblick:** [PROJECT_HANDOFF.md](PROJECT_HANDOFF.md).
+Diese Datei beschreibt die technische Naht, enthält aber auch historische
+Beispiele der ersten DOM-Oberfläche. Für die aktuelle React-Oberfläche gilt
+`src/main.tsx`.
+
 Diese Anwendung ist in zwei Hälften geteilt. Diese Datei beschreibt die Naht.
 
 | | Zuständig | Status |
 | --- | --- | --- |
 | Prozess, Protokoll, Zustand | `src-tauri/src/lib.rs`, `src/core/` | **fertig und geprüft** |
-| Oberfläche nach JLU Design System | `index.html`, `src/main.ts`, `src/styles.css` | zu bauen |
+| Oberfläche mit JLU-Tokens | `index.html`, `src/main.tsx`, `src/styles.css` | vorhanden, in Arbeit |
 
 Die Oberfläche braucht **kein** ACP-Wissen, keine Tauri-Aufrufe und keine
 Prozessverwaltung. Sie abonniert einen Schnappschuss und ruft Methoden.
@@ -135,20 +140,34 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | --- | --- |
 | `agent.send(text)` | Ein Zug. Verbindet bei Bedarf selbst. Wirft mit deutschem Text. |
 | `agent.cancel()` | Bricht den laufenden Zug ab, auch bei offener Berechtigungsfrage. |
-| `agent.newSession()` | Neues Gespräch. |
-| `agent.loadSession(id)` | Gespeichertes Gespräch öffnen; der Verlauf wird eingespielt. |
+| `agent.newSession()` | Neues Gespräch. Wirft während eines Zuges (`canSwitch` ist dann `false`). |
+| `agent.loadSession(id)` | Gespeichertes Gespräch öffnen; der Verlauf wird eingespielt. Liegt es in einem anderen Ordner, zieht der Agent dorthin um (Neustart). |
 | `agent.answerPermission(id \| null)` | Antwort auf die Berechtigungsfrage. |
 | `agent.refreshSessions()` | Seitenleiste neu lesen (nach jedem Zug automatisch). |
 | `agent.deleteSession(id)` | Gespeicherten Chat löschen; bei aktivem Chat zuerst neue Sitzung öffnen. Die Oberfläche muss vorher bestätigen lassen. |
-| `agent.setConfig(config)` | Einstellungen speichern und neu verbinden. |
+| `agent.setConfig(config)` | Einstellungen speichern. Neu gestartet wird nur, wenn sich Programm, Argumente, Umgebung oder Ordner geändert haben — sonst bleibt der Chat offen. |
 | `agent.config` | Aktuelle Einstellungen, oder `null` vor `init()`. |
 | `agent.disconnect()` | Prozess beenden. |
-| `agent.setup(apiKey)` | Ersten Start abschließen. Liefert den `DoctorReport`. |
+| `agent.setup(apiKey)` | Ersten Start abschließen. Liefert den `DoctorReport`. Meldet er Fehler, bleibt `setupHold` gesetzt und die Einrichtung offen. |
+| `agent.finishSetup()` | Die Einrichtung trotz gemeldeter Fehler verlassen. |
+| `agent.pickProgram()` / `agent.setProgram(path)` | Programm des Agenten wählen, wenn die Suche es nicht findet; `readiness` prüft danach genau dieses. |
 | `agent.checkHealth()` | Nur prüfen, nichts ändern (für die Diagnose). |
 | `agent.forgetKey()` | Schlüssel entfernen und zum Einrichtungsbildschirm zurückkehren; alte Schlüsseldateien werden danach nicht automatisch erneut übernommen. |
 | `agent.refreshReadiness()` | `readiness` neu ermitteln. |
-| `agent.pickWorkspace()` | Ordnerauswahl des Systems, dann dort neue Sitzung. |
+| `agent.pickWorkspace()` | Ordnerauswahl des Systems, dann dort neue Sitzung. jichi nimmt den Ordner aus seinem **Startverzeichnis**, nicht aus `session/new` — ein anderer Ordner startet den Agenten deshalb neu. |
 | `agent.openWorkspace(path)` | Dasselbe mit bekanntem Pfad. |
+| `agent.send(text, images?)` | Wie oben, mit Bildern (`{data, mimeType}`), nur wenn `canAttachImages`. |
+| `agent.setModel(model \| null)` | Modell wählen (`--model`). Neustart, der offene Chat wird wieder geladen. |
+| `agent.setMode("chat" \| "plan" \| "auto")` | Arbeitsweise (`--plan`/`--auto`). jichi speichert den Modus in der Sitzung, darum beginnt ein Wechsel einen neuen Chat. `auto` wird nie gespeichert. |
+| `agent.refreshGateway()` | Freie Modelle (`jlu/…`) am Gateway abfragen → `snapshot.gateway`. |
+| `agent.readProjectFile(path)` | Heutiger Inhalt einer Datei im Projekt — für die Diff-Vorschau. |
+| `agent.openLink(url)` | http(s)-Verweis im Browser des Systems öffnen. |
+
+**Terminals.** Die Anwendung meldet `terminal: true` an (nicht unter Windows).
+jichi lässt `run_terminal_command`/`run_tests` dann über `terminal/*` hier
+laufen; die Ausgabe steht live in `snapshot.terminals[terminalId]`, und die
+Werkzeugkarte kennt ihr Terminal über `ToolItem.terminalId`. Befehle laufen in
+eigener Prozessgruppe und **ohne** Variablen, deren Name nach Schlüssel aussieht.
 
 Für Name, Erscheinungsbild und Fensterlayout gibt es `readPreferences()`, `writePreferences()`
 und `applyAppearance()` in `src/core/preferences.ts` — keine eigene Ablage
@@ -197,13 +216,14 @@ Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
     Das Arbeitsverzeichnis ist **keine Einstellung**, sondern das Ergebnis von
     „Projekt öffnen“.
 
-`src/main.ts` zeichnet alle zehn ohne Framework. Als Vorlage lesen, nicht
-übernehmen.
+`src/main.tsx` ist die aktuelle React-Oberfläche. Der alte DOM-Prototyp ist
+keine Arbeitsgrundlage mehr.
 
 ## 6. Regeln
 
-- **`src/core/` und `src-tauri/` nicht ändern.** Fehlt etwas, fehlt es im
-  Vertrag — dann hier ergänzen, nicht daran vorbeiarbeiten.
+- Fehlt der Oberfläche eine Funktion im Kern, ergänze sie ausdrücklich in
+  `src/core/` oder `src-tauri/` und aktualisiere Vertrag und Tests. Die
+  Transportgrenze bleibt bestehen.
 - **Kein `invoke`, kein `listen` in Komponenten.** Der Transport ist die einzige
   Stelle, die Tauri kennt.
 - **Keine festen Farben.** Regel des Design Systems: semantische Token statt
@@ -216,8 +236,8 @@ Die Selbstprüfung erzeugt jeden dieser Zustände; keiner ist selten.
 ## 7. Prüfen
 
 ```sh
-npm run check        # Typen + 42 Prüfungen des Kerns gegen einen erfundenen Agenten
-npm run check:rust   # 11 Prüfungen der Rust-Seite
+npm run check        # Typen + 89 Prüfungen des TS-Kerns (25.09.2026)
+npm run check:rust   # 25 aktive Rust-Tests, 2 Integrationstests ignoriert
 npm run tauri dev    # die Anwendung
 ```
 
@@ -232,7 +252,8 @@ Drei Dinge, die eine Oberfläche sonst zu spüren bekommt:
    Shell-Environment. Der PATH des Kindes wird ergänzt, und der Agent wird in den
    üblichen Verzeichnissen gesucht.
 2. **Schlüssel** — der Agent liest `JICHI_API_KEY` aus der Umgebung. Die
-   Anwendung kennt nur den Pfad einer Datei und liest sie beim Start.
+   Anwendung hält ihn in einer eigenen 0600-Datei und setzt die Variable nur
+   für das Kind, im Moment des Starts.
 3. **Generationen** — jedes Kind hat eine Nummer. Nach einem Neustart können
    gepufferte Zeilen des alten Prozesses nachkommen; sie werden verworfen,
    statt der neuen Sitzung zugeschrieben zu werden.
