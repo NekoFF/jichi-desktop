@@ -27,10 +27,15 @@ export interface SprungZug {
   werkzeuge: number;
 }
 
-/** Länge des Balkens: logarithmisch, damit eine lange Antwort die kurzen nicht erdrückt. */
-function balken(umfang: number, werkzeuge: number): number {
+/**
+ * Länge des Balkens in Ruhe: wie viel in diesem Zug geschah — Text der
+ * Antworten plus Werkzeuge (je 400 Zeichen wert). Logarithmisch, damit eine
+ * sehr lange Antwort die kurzen nicht erdrückt: „👍“ ≈ 4 px, ein Absatz
+ * ≈ 14 px, ein langer Bericht bis 26 px.
+ */
+export function balken(umfang: number, werkzeuge: number): number {
   const u = Math.log10(1 + umfang + werkzeuge * 400);
-  return Math.round(Math.min(22, Math.max(6, 4 + u * 4.2)));
+  return Math.round(Math.min(26, Math.max(4, 2 + u * 5)));
 }
 
 function kurz(text: string, n = 70): string {

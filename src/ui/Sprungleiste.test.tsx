@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { Sprungleiste, type SprungZug } from "./Sprungleiste.tsx";
+import { balken, Sprungleiste, type SprungZug } from "./Sprungleiste.tsx";
 
 afterEach(cleanup);
 
@@ -12,6 +12,13 @@ const zuege: SprungZug[] = [
 ];
 
 describe("Sprungleiste", () => {
+  it("macht kurze Züge kurz und lange lang", () => {
+    expect(balken(2, 0)).toBe(4);
+    expect(balken(300, 0)).toBeGreaterThan(balken(20, 0));
+    expect(balken(3000, 2)).toBeGreaterThan(balken(300, 0));
+    expect(balken(10_000_000, 50)).toBe(26);
+  });
+
   it("erscheint erst ab zwei Fragen", () => {
     const { container } = render(<Sprungleiste zuege={zuege.slice(0, 1)} aktiv="a" springen={() => {}} />);
     expect(container.querySelector(".sprungleiste")).toBeNull();
