@@ -1032,7 +1032,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 .panel-knopf { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--color-on-surface-variant); }
 .panel-knopf:hover { background: color-mix(in srgb, var(--color-on-surface) 7%, transparent); color: var(--color-on-surface); }
 .panel-neu { position: relative; }
-.panel-menue { bottom: auto; top: calc(100% + 6px); right: -60px; left: auto; width: 250px; transform-origin: top right; }
+.panel-menue { bottom: auto; top: calc(100% + 6px); right: -60px; left: auto; width: 250px; transform-origin: top left; }
 .menue-taste { flex: none; margin-left: auto; font-size: 11px; font-family: var(--font-mono); opacity: .8; }
 
 .panel-inhalt { position: relative; flex: 1; min-height: 0; }
@@ -1223,19 +1223,17 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 
 /* ── Sprungleiste ───────────────────────────────────────────────────────── */
 
-/* Ruhig, solange niemand sie braucht: blass am rechten Rand des Verlaufs,
-   zum Seitenpanel hin — gespiegelt, die Balken wachsen nach links. Beim
-   Scrollen, über dem Verlauf oder unter der Maus tritt sie hervor. */
+/* Ruhig, solange niemand sie braucht: blass am linken Rand des Verlaufs,
+   gleich neben der Seitenleiste. Beim Scrollen, über dem Verlauf oder unter
+   der Maus tritt sie hervor. */
 .sprungleiste {
-  position: absolute; top: 16px; right: 14px; z-index: 6;
+  position: absolute; top: 14px; left: 14px; z-index: 6;
   opacity: .38; transition: opacity .35s ease;
 }
 .verlauf-rahmen:hover .sprungleiste { opacity: .7; }
 .sprungleiste.scrollt, .sprungleiste.schwebt, .sprungleiste:focus-within, .verlauf-rahmen .sprungleiste:hover { opacity: 1; transition-duration: .12s; }
 .sprung-pixel {
-  position: relative; display: flex; flex-direction: column; align-items: flex-end;
-  /* feste Breite (längster Balken, ganz gewachsen): die Leiste wackelt nicht */
-  width: 76px; padding: 8px 6px 8px 10px; border-radius: 10px;
+  position: relative; display: flex; flex-direction: column; padding: 8px 10px 8px 6px; border-radius: 10px;
   cursor: pointer; outline: 0;
 }
 .sprung-pixel:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 45%, transparent); }
@@ -1243,7 +1241,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
    glätten die Sprünge zwischen zwei Mausbewegungen — so fließt die Welle. */
 .sprung-reihe {
   --g: 0;
-  display: flex; flex-direction: row-reverse; align-items: center; gap: calc(2px + 2px * var(--g));
+  display: flex; align-items: center; gap: calc(2px + 2px * var(--g));
   height: calc(3px + 6px * var(--g)); margin: calc(2.5px + 2px * var(--g)) 0;
   transition: height .16s cubic-bezier(.2,.8,.2,1), margin .16s cubic-bezier(.2,.8,.2,1), gap .16s ease;
 }
@@ -1263,8 +1261,8 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
 .sprung-reihe.nah.aktiv .sprung-balken { background: var(--color-on-surface); }
 
 .sprung-etikett {
-  position: absolute; right: calc(100% + 2px); transform: translateY(calc(-50% + 8px)); z-index: 7; pointer-events: none;
-  display: flex; align-items: center; gap: 7px; max-width: 360px; padding: 5px 6px 5px 10px; border-radius: 9px;
+  position: absolute; left: 44px; transform: translateY(calc(-50% + 8px)); z-index: 7; pointer-events: none;
+  display: flex; align-items: center; gap: 7px; max-width: 360px; padding: 5px 10px 5px 6px; border-radius: 9px;
   background: color-mix(in srgb, var(--color-surface-container-lowest) 96%, transparent); backdrop-filter: blur(14px);
   border: 1px solid color-mix(in srgb, var(--color-outline-variant) 80%, transparent);
   box-shadow: 0 10px 28px -14px color-mix(in srgb, var(--color-on-surface) 40%, transparent);
@@ -1272,7 +1270,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
   transition: top .16s cubic-bezier(.2,.8,.2,1);
   animation: etikett-auf .14s ease-out;
 }
-@keyframes etikett-auf { from { opacity: 0; transform: translate(4px, calc(-50% + 8px)); } }
+@keyframes etikett-auf { from { opacity: 0; transform: translate(-4px, calc(-50% + 8px)); } }
 .sprung-etikett-nr {
   flex: none; min-width: 18px; height: 18px; padding: 0 4px; display: grid; place-items: center; border-radius: 3px;
   font: 600 10px var(--font-mono); background: color-mix(in srgb, var(--color-on-surface) 7%, transparent); color: var(--color-on-surface-variant);
@@ -1283,7 +1281,7 @@ html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0
   .sprung-reihe, .sprung-quadrat, .sprung-balken, .sprung-etikett { transition: none; animation: none; }
 }
 .sprung-karte {
-  position: absolute; top: 0; right: calc(100% + 6px); width: 320px; max-height: min(460px, 70vh); overflow-y: auto;
+  position: absolute; top: 0; left: calc(100% + 6px); width: 320px; max-height: min(460px, 70vh); overflow-y: auto;
   padding: 6px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--color-outline-variant) 80%, transparent);
   background: color-mix(in srgb, var(--color-surface-container-lowest) 96%, transparent); backdrop-filter: blur(16px);
   box-shadow: 0 18px 44px -18px color-mix(in srgb, var(--color-on-surface) 38%, transparent);

@@ -1,5 +1,5 @@
 /**
- * Die Sprungleiste: der Chat als Karte, rechts oben am Verlauf, zum Seitenpanel hin.
+ * Die Sprungleiste: der Chat als Karte, links oben am Verlauf, neben der Seitenleiste.
  *
  * Jede eigene Frage ist eine Zeile aus Pixeln — ein Quadrat und ein Balken,
  * wie im Zeichen von jichi. Die Länge des Balkens zeigt, wie umfangreich die
