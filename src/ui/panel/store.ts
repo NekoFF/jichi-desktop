@@ -184,7 +184,7 @@ export const panel = {
 // Aus der Seitenleiste in die Nachricht: ein markierter Ausschnitt („Auswahl
 // an jichi“) oder eine Datei als Kontext. Das Eingabefeld hört zu.
 
-export type ZurEingabe = { text: string } | { datei: string };
+export type ZurEingabe = { text: string } | { datei: string } | { ersetzen: string } | { dateien: string[] };
 const eingabeHoerer = new Set<(e: ZurEingabe) => void>();
 
 export const zurEingabe = {

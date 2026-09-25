@@ -1,6 +1,6 @@
 /** Das Gespräch: Nachrichten, Werkzeugkarten, Rückfragen und der leere Anfang. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Terminal,
   Wrench,
+  Pencil,
 } from "lucide-react";
 import {
   agent,
@@ -31,7 +32,8 @@ import { Dateikarte } from "./Dateikarte.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { Marke } from "./Marke.tsx";
 import { Vorschau } from "./Vorschau.tsx";
-import { panel } from "./panel/store.ts";
+import { panel, zurEingabe } from "./panel/store.ts";
+import { Sprungleiste, type SprungZug } from "./Sprungleiste.tsx";
 
 // ── Verlauf ──────────────────────────────────────────────────────────────────
 
@@ -68,9 +70,9 @@ function Terminalausgabe({ view }: { view: TerminalView }) {
   );
 }
 
-function Werkzeug({ eintrag, snap }: { eintrag: ToolItem; snap: Snapshot }) {
+const Werkzeug = memo(function Werkzeug({ eintrag, terminal }: { eintrag: ToolItem; terminal?: TerminalView }) {
   const laeuft = eintrag.status === "in_progress" || eintrag.status === "pending";
-  const terminal = eintrag.terminalId ? snap.terminals[eintrag.terminalId] : undefined;
+
   // Ein laufender Befehl klappt von selbst auf: dafür ist die Live-Ausgabe da.
   const [offen, setOffen] = useState<boolean | null>(null);
   const aufgeklappt = offen ?? (!!terminal && laeuft);
@@ -117,10 +119,10 @@ function Werkzeug({ eintrag, snap }: { eintrag: ToolItem; snap: Snapshot }) {
       )}
     </div>
   );
-}
+});
 
 /** Unter einer fertigen Antwort: kopieren, noch einmal fragen, wann. */
-function Aktionen({ text, frage, at, snap }: { text: string; frage: string | null; at?: number; snap: Snapshot }) {
+function Aktionen({ text, frage, at, canSend }: { text: string; frage: string | null; at?: number; canSend: boolean }) {
   const [kopiert, setKopiert] = useState(false);
   const [, tick] = useState(0);
   // „vor 3 Min.“ soll nicht stehen bleiben.
@@ -148,7 +150,7 @@ function Aktionen({ text, frage, at, snap }: { text: string; frage: string | nul
       {frage && (
         <button
           type="button"
-          disabled={!snap.canSend}
+          disabled={!canSend}
           onClick={() => void agent.send(frage).catch(() => {})}
           aria-label="Noch einmal fragen"
           title="Noch einmal fragen"
@@ -184,8 +186,13 @@ function Arbeitet({ snap }: { snap: Snapshot }) {
   );
 }
 
-function Eintrag({ eintrag, snap }: { eintrag: TranscriptItem; snap: Snapshot }) {
-  if (eintrag.kind === "tool") return <Werkzeug eintrag={eintrag} snap={snap} />;
+/**
+ * Ein Eintrag ändert sich nur, wenn sein Objekt sich ändert — der Verlauf ist
+ * unveränderlich aufgebaut. Darum zeichnet ein neues Token nur die letzte
+ * Nachricht neu, nicht alle davor.
+ */
+const Eintrag = memo(function Eintrag({ eintrag, terminal }: { eintrag: TranscriptItem; terminal?: TerminalView }) {
+  if (eintrag.kind === "tool") return <Werkzeug eintrag={eintrag} terminal={terminal} />;
 
   if (eintrag.kind === "notice") {
     return (
@@ -215,6 +222,12 @@ function Eintrag({ eintrag, snap }: { eintrag: TranscriptItem; snap: Snapshot })
           ) : null}
           {eintrag.text}
         </div>
+        {eintrag.text && (
+          <button type="button" className="nachricht-bearbeiten" title="Bearbeiten und erneut senden" aria-label="Nachricht bearbeiten"
+            onClick={() => zurEingabe.send({ ersetzen: eintrag.text })}>
+            <Pencil size={12} />
+          </button>
+        )}
       </div>
     );
   }
@@ -228,7 +241,7 @@ function Eintrag({ eintrag, snap }: { eintrag: TranscriptItem; snap: Snapshot })
       <Markdown text={eintrag.text} />
     </div>
   );
-}
+});
 
 function Rueckfrage({ snap }: { snap: Snapshot }) {
   const frage = snap.permission;
@@ -243,6 +256,9 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
   const aufruf = snap.transcript.find(
     (i): i is ToolItem => i.kind === "tool" && i.toolCallId === frage.toolCallId,
   );
+  // Der Name des Werkzeugs ist das erste Wort des Titels („write_file notes.txt“).
+  const werkzeug = /^[\w.-]+/.exec(frage.title)?.[0] ?? null;
+  const erlaubenEinmal = frage.options.find((o) => o.kind === "allow_once") ?? frage.options.find((o) => o.kind === "allow_always");
   return (
     <div className="rueckfrage" ref={kasten} role="alertdialog" aria-label="jichi bittet um Erlaubnis">
       <div className="rueckfrage-titel">jichi bittet um Erlaubnis</div>
@@ -262,6 +278,18 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
             {o.name}
           </button>
         ))}
+        {werkzeug && erlaubenEinmal && (
+          <button
+            className="knopf"
+            title={`Auch nach einem Neustart: trägt ${werkzeug} in jichis Erlaubnisse ein (permissions.allow). Rückgängig in den Einstellungen.`}
+            onClick={() => void agent.alwaysAllow(werkzeug).then(
+              () => agent.answerPermission(erlaubenEinmal.optionId),
+              () => agent.answerPermission(erlaubenEinmal.optionId),
+            )}
+          >
+            Immer erlauben
+          </button>
+        )}
         <button className="knopf" onClick={() => agent.answerPermission(null)}>
           Abbrechen
         </button>
@@ -282,9 +310,20 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
     if (amEnde.current) el.scrollTop = el.scrollHeight;
   });
 
+  const [aktiveFrage, setAktiveFrage] = useState<string | null>(null);
   function beobachten() {
     const el = box.current;
-    if (el) amEnde.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (!el) return;
+    amEnde.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // Die Frage, in deren Zug man gerade liest: die letzte, die oberhalb eines
+    // Drittels der Höhe beginnt.
+    const grenze = el.getBoundingClientRect().top + el.clientHeight / 3;
+    let aktiv: string | null = null;
+    for (const n of el.querySelectorAll<HTMLElement>("[data-frage]")) {
+      if (n.getBoundingClientRect().top <= grenze) aktiv = n.dataset.frage ?? null;
+      else break;
+    }
+    setAktiveFrage(aktiv);
   }
 
   const t = snap.transcript;
@@ -297,52 +336,80 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
     }
     return letzte;
   }, [t]);
+
+  // Ein Durchgang von hinten statt einer Suche je Eintrag: wo endet ein Zug,
+  // und welche Frage gehört dazu.
+  const { endeVon, frageVon, zuege } = useMemo(() => {
+    const endeVon = new Set<string>();
+    const frageVon = new Map<string, string | null>();
+    let schonAntwort = false;
+    for (let i = t.length - 1; i >= 0; i -= 1) {
+      const e = t[i];
+      if (e.kind === "message" && e.role === "user") {
+        schonAntwort = false;
+      } else if (e.kind === "message" && e.role === "agent" && !schonAntwort) {
+        schonAntwort = true;
+        const letzterZug = !t.slice(i + 1).some((n) => n.kind === "message" && n.role === "user");
+        if (!e.streaming && !(laeuft && letzterZug)) endeVon.add(e.id);
+      }
+    }
+    let frage: string | null = null;
+    const zuege: SprungZug[] = [];
+    for (const e of t) {
+      if (e.kind === "message" && e.role === "user") {
+        frage = e.text && !e.images?.length && !e.files?.length ? e.text : null;
+        zuege.push({ id: e.id, text: e.text || (e.files?.join(", ") ?? "Bild"), at: e.at, umfang: 0, werkzeuge: 0 });
+      } else if (zuege.length) {
+        const z = zuege[zuege.length - 1];
+        if (e.kind === "message") z.umfang += e.text.length;
+        if (e.kind === "tool") z.werkzeuge += 1;
+      }
+      if (endeVon.has(e.id)) frageVon.set(e.id, frage);
+    }
+    return { endeVon, frageVon, zuege };
+  }, [t, laeuft]);
+
+  const springen = useCallback((id: string) => {
+    const el = box.current?.querySelector<HTMLElement>(`[data-frage="${id}"]`);
+    if (!el) return;
+    amEnde.current = false;
+    // Zweimal: Einträge ausserhalb des Bildes haben nur eine geschätzte Höhe
+    // (content-visibility). Nach dem ersten Sprung sind die Nachbarn gezeichnet,
+    // der zweite trifft genau.
+    el.scrollIntoView({ block: "start" });
+    requestAnimationFrame(() => requestAnimationFrame(() => el.scrollIntoView({ block: "start" })));
+    el.classList.remove("aufblitzen");
+    void el.offsetWidth;
+    el.classList.add("aufblitzen");
+  }, []);
+
   return (
-    <div className="verlauf" ref={box} onScroll={beobachten}>
-      <div className="spalte">
-        {t.map((e, i) => {
-          // Aktionen nur unter der letzten Antwort eines Zuges, wenn sie fertig ist.
-          const bis = naechsteFrage(t, i);
-          const spaeter = t.slice(i + 1, bis).some((n) => n.kind === "message" && n.role === "agent");
-          const imLaufendenZug = laeuft && bis === t.length;
-          const ende =
-            e.kind === "message" && e.role === "agent" && !e.streaming && !spaeter && !imLaufendenZug;
-          const frage = ende ? letzteFrage(t, i) : null;
-          return (
-            <div key={e.id}>
-              <Eintrag eintrag={e} snap={snap} />
-              {e.kind === "tool" &&
-                producedFiles(e.rawInput, e.status)
-                  .filter((f) => dateien.get(f) === e.id)
-                  .map((f) => <Dateikarte key={f} path={f} version={`${e.id}:${e.status}`} />)}
-              {ende && e.kind === "message" && (
-                <Aktionen text={e.text} frage={frage} at={e.at} snap={snap} />
-              )}
-            </div>
-          );
-        })}
-        <Rueckfrage snap={snap} />
-        {laeuft && !snap.permission && <Arbeitet key={snap.sessionId ?? "x"} snap={snap} />}
+    <div className="verlauf-rahmen">
+      <Sprungleiste zuege={zuege} aktiv={aktiveFrage ?? zuege[zuege.length - 1]?.id ?? null} springen={springen} />
+      <div className="verlauf" ref={box} onScroll={beobachten}>
+        <div className="spalte">
+          {t.map((e) => {
+            const ende = endeVon.has(e.id);
+            const istFrage = e.kind === "message" && e.role === "user";
+            return (
+              <div key={e.id} className="verlauf-eintrag" data-frage={istFrage ? e.id : undefined}>
+                <Eintrag eintrag={e} terminal={e.kind === "tool" && e.terminalId ? snap.terminals[e.terminalId] : undefined} />
+                {e.kind === "tool" &&
+                  producedFiles(e.rawInput, e.status)
+                    .filter((f) => dateien.get(f) === e.id)
+                    .map((f) => <Dateikarte key={f} path={f} version={`${e.id}:${e.status}`} />)}
+                {ende && e.kind === "message" && (
+                  <Aktionen text={e.text} frage={frageVon.get(e.id) ?? null} at={e.at} canSend={snap.canSend} />
+                )}
+              </div>
+            );
+          })}
+          <Rueckfrage snap={snap} />
+          {laeuft && !snap.permission && <Arbeitet key={snap.sessionId ?? "x"} snap={snap} />}
+        </div>
       </div>
     </div>
   );
-}
-
-/** Index der nächsten eigenen Nachricht nach `i`, sonst das Ende. */
-function naechsteFrage(t: readonly TranscriptItem[], i: number): number {
-  const j = t.findIndex((n, k) => k > i && n.kind === "message" && n.role === "user");
-  return j < 0 ? t.length : j;
-}
-
-/** Der Text der eigenen Nachricht, auf die die Antwort bei `i` folgt — ohne Anhänge. */
-function letzteFrage(t: readonly TranscriptItem[], i: number): string | null {
-  for (let k = i - 1; k >= 0; k -= 1) {
-    const n = t[k];
-    if (n.kind === "message" && n.role === "user") {
-      return n.text && !n.images?.length && !n.files?.length ? n.text : null;
-    }
-  }
-  return null;
 }
 
 export function Leer({

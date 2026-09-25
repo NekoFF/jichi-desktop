@@ -34,6 +34,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 mod artefakt;
 mod browser;
+mod chats;
+mod konfig;
 mod documents;
 mod gateway;
 mod git;
@@ -1148,7 +1150,11 @@ fn sessions_now() -> Result<Vec<StoredSession>, String> {
 #[tauri::command]
 fn delete_session(session_id: String) -> Result<(), String> {
     let root = home().ok_or("Das Benutzerverzeichnis wurde nicht gefunden.")?;
-    delete_session_in(&root.join(".jichi.d/sessions"), &session_id)
+    delete_session_in(&root.join(".jichi.d/sessions"), &session_id)?;
+    if let Ok(f) = chats_file() {
+        chats::forget(&f, &session_id);
+    }
+    Ok(())
 }
 
 /// Die Id wird nie als Pfad verwendet. Nur eine tatsächlich gelesene Sitzung
@@ -1746,6 +1752,149 @@ fn allow_project_assets(app: AppHandle, cwd: String) -> Result<(), String> {
         .map_err(|e| format!("Freigabe fehlgeschlagen: {e}"))
 }
 
+// ── Chats: Namen, Anheften, Suche, Export ────────────────────────────────────
+
+fn chats_file() -> Result<PathBuf, String> {
+    Ok(chats::meta_file(&app_dir().ok_or("Anwendungsordner fehlt")?))
+}
+
+#[tauri::command]
+async fn chats_meta() -> Result<std::collections::BTreeMap<String, chats::Meta>, String> {
+    blocking(|| Ok(chats::read_meta(&chats_file()?))).await?
+}
+
+/// `rename`: ob `title` gilt (auch `null` = eigenen Namen entfernen).
+#[tauri::command]
+async fn chat_meta_set(id: String, rename: bool, title: Option<String>, pinned: Option<bool>) -> Result<std::collections::BTreeMap<String, chats::Meta>, String> {
+    blocking(move || chats::set_meta(&chats_file()?, &id, rename.then_some(title), pinned)).await?
+}
+
+#[tauri::command]
+async fn search_chats(query: String) -> Result<Vec<chats::Treffer>, String> {
+    blocking(move || {
+        let dir = home().ok_or("Heimatverzeichnis fehlt")?.join(".jichi.d/sessions");
+        Ok(chats::search(&dir, &query))
+    })
+    .await?
+}
+
+/// Einen Chat an einen gewählten Ort schreiben: Markdown, Word oder PDF.
+#[tauri::command]
+async fn export_chat(dest: String, format: String, title: String, markdown: String) -> Result<(), String> {
+    blocking(move || {
+        let file = expand_tilde(&dest);
+        match format.as_str() {
+            "md" => std::fs::write(&file, &markdown).map_err(|e| format!("{}: {e}", file.display())),
+            "docx" => documents::write_docx(&file, Some(&title), &markdown),
+            "pdf" => documents::write_pdf(&file, Some(&title), &markdown).map(|_| ()),
+            other => Err(format!("unbekanntes Format {other}")),
+        }
+    })
+    .await?
+}
+
+/// Ein Bild für den Anhang (Ziehen und Ablegen): Base64 und Typ, höchstens 5 MB.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Bild {
+    mime_type: String,
+    data: String,
+}
+
+#[tauri::command]
+async fn read_image(path: String) -> Result<Bild, String> {
+    blocking(move || {
+        use base64::Engine as _;
+        let p = expand_tilde(&path);
+        let mime = match p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+            Some("png") => "image/png",
+            Some("jpg" | "jpeg") => "image/jpeg",
+            Some("gif") => "image/gif",
+            Some("webp") => "image/webp",
+            _ => return Err("Nur PNG, JPEG, GIF oder WebP.".into()),
+        };
+        let meta = p.metadata().map_err(|e| format!("{}: {e}", p.display()))?;
+        if meta.len() > 5 * 1024 * 1024 {
+            return Err("Das Bild ist größer als 5 MB.".into());
+        }
+        let bytes = std::fs::read(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+        Ok(Bild { mime_type: mime.into(), data: base64::engine::general_purpose::STANDARD.encode(bytes) })
+    })
+    .await?
+}
+
+// ── jichis Einstellungen: Erlaubnisse und MCP-Server ─────────────────────────
+
+fn konfig_lesen() -> Result<serde_json::Value, String> {
+    read_config_json()?.ok_or_else(|| "Es gibt noch keine Konfiguration des Agenten.".into())
+}
+
+fn konfig_aendern(f: impl FnOnce(&mut serde_json::Value) -> Result<(), String>) -> Result<(), String> {
+    let mut j = konfig_lesen()?;
+    f(&mut j)?;
+    write_config_json_at(&config_path(), &j)
+}
+
+#[tauri::command]
+async fn permissions_get() -> Result<konfig::Erlaubnisse, String> {
+    blocking(|| Ok(konfig::erlaubnisse(&konfig_lesen()?))).await?
+}
+
+#[tauri::command]
+async fn permissions_set(allow: Vec<String>, deny: Vec<String>) -> Result<konfig::Erlaubnisse, String> {
+    blocking(move || {
+        konfig_aendern(|j| konfig::setze_erlaubnisse(j, &allow, &deny))?;
+        Ok(konfig::erlaubnisse(&konfig_lesen()?))
+    })
+    .await?
+}
+
+#[tauri::command]
+async fn mcp_list() -> Result<Vec<konfig::McpServer>, String> {
+    blocking(|| Ok(konfig::server(&konfig_lesen()?, DOCS_NAME))).await?
+}
+
+#[tauri::command]
+async fn mcp_toggle(name: String, enable: bool) -> Result<Vec<konfig::McpServer>, String> {
+    blocking(move || {
+        konfig_aendern(|j| konfig::schalte_server(j, &name, enable))?;
+        Ok(konfig::server(&konfig_lesen()?, DOCS_NAME))
+    })
+    .await?
+}
+
+#[tauri::command]
+async fn mcp_add(name: String, command: String, args: Vec<String>) -> Result<Vec<konfig::McpServer>, String> {
+    blocking(move || {
+        konfig_aendern(|j| konfig::neuer_server(j, &name, &command, &args))?;
+        Ok(konfig::server(&konfig_lesen()?, DOCS_NAME))
+    })
+    .await?
+}
+
+#[tauri::command]
+async fn mcp_remove(name: String) -> Result<Vec<konfig::McpServer>, String> {
+    blocking(move || {
+        konfig_aendern(|j| konfig::entferne_server(j, &name))?;
+        Ok(konfig::server(&konfig_lesen()?, DOCS_NAME))
+    })
+    .await?
+}
+
+/// `jichi mcp`: verbindet sich mit allen Servern und listet ihre Werkzeuge —
+/// ohne Modell, ohne Netz zum Gateway.
+#[tauri::command]
+async fn mcp_test(program: String, env: Option<Vec<EnvSpec>>) -> Result<String, String> {
+    blocking(move || {
+        let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
+        agent_program_ok(&path, &[])?;
+        let resolved = resolve_env(env.as_deref().unwrap_or(&[]))?;
+        let (out, err, _) = run_bounded(&path, &["mcp"], &resolved, std::time::Duration::from_secs(40))?;
+        Ok(format!("{}{}", out.trim_end(), if err.trim().is_empty() { String::new() } else { format!("\n{}", err.trim_end()) }))
+    })
+    .await?
+}
+
 #[tauri::command]
 fn artifact_put(app: AppHandle, id: String, lang: String, title: String, code: String) -> Result<(), String> {
     app.state::<artefakt::Artefakte>().put(&id, &lang, &title, &code)
@@ -1934,6 +2083,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(Acp::default())
         .manage(terminal::Terminals::default())
         .manage(pty::Ptys::default())
@@ -1969,6 +2119,18 @@ pub fn run() {
             git_changes,
             git_file_diff,
             artifact_put,
+            chats_meta,
+            chat_meta_set,
+            search_chats,
+            export_chat,
+            read_image,
+            permissions_get,
+            permissions_set,
+            mcp_list,
+            mcp_toggle,
+            mcp_add,
+            mcp_remove,
+            mcp_test,
             browser_open,
             browser_bounds,
             browser_navigate,

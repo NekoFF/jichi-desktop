@@ -17,6 +17,7 @@
  */
 
 export { Agent, agent } from "./agent.ts";
+export { dateiname, transcriptMarkdown } from "./export.ts";
 export { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 export {
   clearStored,
@@ -98,6 +99,11 @@ export {
   type DoctorReport,
   type EnvSpec,
   type BrowserState,
+  type ChatHit,
+  type ChatMeta,
+  type ExportFormat,
+  type McpServerEntry,
+  type Permissions,
   type DirEntry,
   type GitChange,
   type GitFileDiff,

@@ -40,12 +40,35 @@ import {
   type LaunchConfig,
 } from "./settings.ts";
 import * as S from "./state.ts";
+import { dateiname, transcriptMarkdown } from "./export.ts";
+
+/** Welcher Chat zuletzt je Projekt offen war — zum Wiederöffnen beim Start. */
+const LETZTE = "jichi-desktop.last-chat.v1";
+function letzte(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(LETZTE) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+function merke(cwd: string, id: string): void {
+  try {
+    localStorage.setItem(LETZTE, JSON.stringify({ ...letzte(), [cwd]: id }));
+  } catch {
+    /* ohne Ablage kein Wiederöffnen */
+  }
+}
 import {
   tauriTransport,
   type DoctorReport,
   type EnvSpec,
   type FileAttachment,
   type BrowserState,
+  type ChatHit,
+  type ChatMeta,
+  type ExportFormat,
+  type McpServerEntry,
+  type Permissions,
   type DirListing,
   type GitFileDiff,
   type GitState,
@@ -104,6 +127,10 @@ export class Agent {
   readonly #terms = new Set<string>();
   /** Während `session/load` den Verlauf einspielt: Nachrichten ohne Uhrzeit. */
   #replaying = false;
+  /** Eigene Namen und Angeheftetes, von dieser Anwendung gemerkt. */
+  #meta: Record<string, ChatMeta> = {};
+  /** Wann der laufende Zug begann — für die Mitteilung „fertig“. */
+  #zugStart = 0;
   /** Bereits gezeigte stderr-Meldungen — ein Agent wiederholt seine Warnung. */
   readonly #seen = new Set<string>();
 
@@ -157,6 +184,17 @@ export class Agent {
     await this.refreshReadiness();
     if (this.#snapshot.readiness?.keyStored && !this.#snapshot.needsSetup) void this.refreshGateway();
     void this.refreshDocuments();
+    void this.#wiederOeffnen();
+  }
+
+  /** Den zuletzt offenen Chat dieses Projekts wieder laden — wie man ihn verlassen hat. */
+  async #wiederOeffnen(): Promise<void> {
+    const cwd = this.#config?.cwd;
+    if (!cwd || this.#snapshot.needsSetup || this.#snapshot.sessionId) return;
+    await this.refreshSessions();
+    const id = letzte()[cwd];
+    if (!id || !this.#snapshot.sessions.some((s) => s.id === id)) return;
+    await this.loadSession(id).catch(() => {});
   }
 
   // ── Dokumente ──────────────────────────────────────────────────────────────
@@ -367,6 +405,21 @@ export class Agent {
     if (!dest) return false;
     await this.#transport.saveFileCopy(this.#projekt(), path, dest);
     return true;
+  }
+
+  /** Dateien, die jemand über dem Fenster fallen lässt. */
+  onFileDrop(f: (e: { kind: "over" | "drop" | "leave"; paths: string[] }) => void): Promise<() => void> {
+    return this.#transport.onFileDrop(f);
+  }
+
+  /** Ein Bild von der Platte als Anhang (Ziehen und Ablegen). */
+  readImage(path: string): Promise<{ mimeType: string; data: string }> {
+    return this.#transport.readImage(path);
+  }
+
+  /** Irgendeine Datei (nicht nur im Projekt) als Anhang — Text, PDF, Word, Excel. */
+  attachmentFromPath(path: string): Promise<FileAttachment> {
+    return this.#transport.readAttachment(path);
   }
 
   /** Eine Projektdatei als Anhang für den nächsten Zug (Seitenleiste → „Als Kontext“). */
@@ -589,6 +642,7 @@ export class Agent {
         NEW_SESSION_MS,
       );
       this.#seen.clear();
+      merke(cwd, result.sessionId);
       this.#set({
         sessionId: result.sessionId,
         transcript: [],
@@ -631,6 +685,7 @@ export class Agent {
         LOAD_SESSION_MS,
       );
       this.#replaying = false;
+      merke(cwd, sessionId);
       this.#set({
         status: "ready",
         transcript: S.finalizeStreaming(this.#snapshot.transcript),
@@ -686,6 +741,7 @@ export class Agent {
     if (images.length) last.images = images.map((i) => `data:${i.mimeType};base64,${i.data}`);
     if (files.length) last.files = files.map((f) => f.name);
 
+    this.#zugStart = Date.now();
     this.#set({ status: "busy", error: null, transcript: shown });
 
     try {
@@ -740,10 +796,115 @@ export class Agent {
 
   async refreshSessions(): Promise<void> {
     try {
-      this.#set({ sessions: await this.#transport.sessions() });
+      const [roh, meta] = await Promise.all([
+        this.#transport.sessions(),
+        this.#transport.chatsMeta().catch(() => this.#meta),
+      ]);
+      this.#meta = meta;
+      this.#set({ sessions: this.#mitMeta(roh) });
     } catch (cause) {
       this.#diagnose(`Sitzungen konnten nicht gelesen werden: ${describe(cause)}`);
     }
+  }
+
+  #mitMeta(roh: readonly StoredSessionLike[]): StoredSessionLike[] {
+    const out = roh.map((s) => {
+      const m = this.#meta[s.id];
+      return {
+        ...s,
+        title: m?.title ?? s.originalTitle ?? s.title,
+        originalTitle: m?.title ? s.originalTitle ?? s.title : undefined,
+        pinned: !!m?.pinned,
+      };
+    });
+    // Angeheftete zuerst, sonst die jüngsten.
+    return out.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.modified - a.modified);
+  }
+
+  /** Einen Chat umbenennen. Leerer Name: wieder den von jichi. */
+  async renameChat(id: string, title: string): Promise<void> {
+    this.#meta = await this.#transport.chatMetaSet(id, true, title.trim() || null, null);
+    this.#set({ sessions: this.#mitMeta(this.#snapshot.sessions) });
+  }
+
+  async pinChat(id: string, pinned: boolean): Promise<void> {
+    this.#meta = await this.#transport.chatMetaSet(id, false, null, pinned);
+    this.#set({ sessions: this.#mitMeta(this.#snapshot.sessions) });
+  }
+
+  /** Im Inhalt aller Chats suchen. */
+  searchChats(query: string): Promise<ChatHit[]> {
+    return this.#transport.searchChats(query);
+  }
+
+  /** Den offenen Chat exportieren. `false`: Dialog abgebrochen. */
+  async exportChat(format: ExportFormat): Promise<boolean> {
+    const titel = this.#snapshot.sessions.find((s) => s.id === this.#snapshot.sessionId)?.title ?? "Chat mit jichi";
+    const dest = await this.#transport.pickExportLocation(`${dateiname(titel)}.${format}`, format);
+    if (!dest) return false;
+    await this.#transport.exportChat(dest, format, titel, transcriptMarkdown(this.#snapshot.transcript, titel));
+    return true;
+  }
+
+  // ── jichis Einstellungen: Erlaubnisse, MCP ─────────────────────────────────
+
+  permissions(): Promise<Permissions> {
+    return this.#transport.permissionsGet();
+  }
+
+  /** Dauerhaft erlauben/verbieten. jichi liest das beim Start — gilt ab dem nächsten. */
+  async setPermissions(allow: string[], deny: string[]): Promise<Permissions> {
+    const p = await this.#transport.permissionsSet(allow, deny);
+    if (!this.#busy()) await this.#relaunchKeepingChat();
+    else this.#neustartNoetig = true;
+    return p;
+  }
+
+  /** Ein Werkzeug für immer erlauben (aus einer Berechtigungsfrage heraus). */
+  async alwaysAllow(tool: string): Promise<void> {
+    const p = await this.#transport.permissionsGet();
+    if (p.allow.includes(tool)) return;
+    await this.#transport.permissionsSet([...p.allow, tool], p.deny.filter((d) => d !== tool));
+    // Die laufende Frage wird gleich beantwortet; neu gestartet wird danach.
+    this.#neustartNoetig = true;
+  }
+
+  mcpServers(): Promise<McpServerEntry[]> {
+    return this.#transport.mcpList();
+  }
+
+  async mcpToggle(name: string, enable: boolean): Promise<McpServerEntry[]> {
+    const l = await this.#transport.mcpToggle(name, enable);
+    await this.#nachKonfig();
+    return l;
+  }
+
+  async mcpAdd(name: string, command: string, args: string[]): Promise<McpServerEntry[]> {
+    const l = await this.#transport.mcpAdd(name, command, args);
+    await this.#nachKonfig();
+    return l;
+  }
+
+  async mcpRemove(name: string): Promise<McpServerEntry[]> {
+    const l = await this.#transport.mcpRemove(name);
+    await this.#nachKonfig();
+    return l;
+  }
+
+  /** Mit allen MCP-Servern verbinden und ihre Werkzeuge nennen (ohne Modell). */
+  mcpTest(): Promise<string> {
+    const c = this.#config;
+    if (!c) throw new Error("Der Agent ist noch nicht eingerichtet.");
+    return this.#transport.mcpTest(c.program, c.env);
+  }
+
+  #neustartNoetig = false;
+
+  /** jichi liest seine Konfiguration beim Start: neu starten, sobald es geht. */
+  async #nachKonfig(): Promise<void> {
+    void this.refreshDocuments();
+    if (!this.#busy()) await this.#relaunchKeepingChat();
+    else this.#neustartNoetig = true;
   }
 
   /** Eine gespeicherte Sitzung nach Bestätigung durch die Oberfläche löschen. */
@@ -920,6 +1081,11 @@ export class Agent {
 
   #endTurn(stopReason: string): void {
     const transcript = S.finalizeStreaming(this.#snapshot.transcript);
+    this.#fertigMelden(stopReason);
+    if (this.#neustartNoetig) {
+      this.#neustartNoetig = false;
+      queueMicrotask(() => void this.#relaunchKeepingChat().catch(() => {}));
+    }
     // Nach einem Abgang des Prozesses gilt `offline`; nicht überschreiben.
     const status: S.Status = this.#snapshot.status === "offline" ? "offline" : "ready";
     this.#set({ status, transcript });
@@ -930,6 +1096,19 @@ export class Agent {
     } else if (stopReason !== "end_turn") {
       this.#note("warning", `Der Zug endete mit „${stopReason}“.`);
     }
+  }
+
+  /**
+   * Ein langer Zug ist fertig, und niemand sieht hin: eine Mitteilung des
+   * Systems. Nicht bei kurzen Antworten und nicht, wenn das Fenster vorn ist.
+   */
+  #fertigMelden(stopReason: string): void {
+    const dauer = Date.now() - this.#zugStart;
+    const unbeachtet = typeof document !== "undefined" && (document.hidden || !document.hasFocus());
+    if (!unbeachtet || dauer < 15_000 || stopReason === "cancelled") return;
+    const letzte = [...this.#snapshot.transcript].reverse().find((i) => i.kind === "message" && i.role === "agent");
+    const text = letzte?.kind === "message" ? letzte.text.replace(/[#*`_>]/g, "").trim().slice(0, 140) : "";
+    void this.#transport.notify("jichi ist fertig", text || "Die Antwort liegt bereit.").catch(() => {});
   }
 
   #onExit(code: number | null): void {
@@ -1097,6 +1276,9 @@ export class Agent {
       options: Array.isArray(params?.options) ? params.options : [],
     };
     this.#set({ permission: pending });
+    if (typeof document !== "undefined" && (document.hidden || !document.hasFocus())) {
+      void this.#transport.notify("jichi wartet auf deine Erlaubnis", pending.title).catch(() => {});
+    }
 
     return new Promise<PermissionOutcome>((resolve) => {
       this.#permission = resolve;
@@ -1122,6 +1304,8 @@ function fileUri(path: string): string {
   const norm = path.replace(/\\/g, "/");
   return `file://${norm.startsWith("/") ? "" : "/"}${encodeURI(norm).replace(/[?#]/g, encodeURIComponent)}`;
 }
+
+type StoredSessionLike = S.Snapshot["sessions"][number];
 
 /** Was am Start des Agenten zählt — ohne den Ordner, der eigens verglichen wird. */
 function launchKey(config: LaunchConfig): string {

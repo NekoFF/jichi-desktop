@@ -15,6 +15,7 @@
 import { Agent } from "./agent.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { applyPlan, planOf, producedFiles, visible } from "./preview.ts";
+import { transcriptMarkdown } from "./export.ts";
 import type {
   ConfigReport,
   DoctorReport,
@@ -254,6 +255,32 @@ class FakeAgent implements Transport {
   assetUrl(p: string) {
     return `asset://localhost${p}`;
   }
+  meta: Record<string, { title?: string; pinned?: boolean }> = {};
+  async chatsMeta() { return { ...this.meta }; }
+  async chatMetaSet(id: string, rename: boolean, title: string | null, pinned: boolean | null) {
+    const m = { ...(this.meta[id] ?? {}) };
+    if (rename) { if (title) m.title = title; else delete m.title; }
+    if (pinned !== null) m.pinned = pinned;
+    this.meta[id] = m;
+    return { ...this.meta };
+  }
+  async searchChats(q: string) { return q === "make" ? [{ id: "S0", snippet: "…make all…", role: "assistant" }] : []; }
+  exportZiel: string | null = "/tmp/chat.md";
+  exporte: Array<[string, string, string]> = [];
+  async pickExportLocation() { return this.exportZiel; }
+  async exportChat(dest: string, format: string, _t: string, md: string) { this.exporte.push([dest, format, md]); }
+  async onFileDrop() { return () => {}; }
+  async readImage() { return { mimeType: "image/png", data: "iVBOR" }; }
+  mitteilungen: string[] = [];
+  async notify(t: string) { this.mitteilungen.push(t); }
+  erlaubt = { allow: [] as string[], deny: [] as string[], allowAll: false, denyAll: false };
+  async permissionsGet() { return { ...this.erlaubt }; }
+  async permissionsSet(allow: string[], deny: string[]) { this.erlaubt = { ...this.erlaubt, allow, deny }; return { ...this.erlaubt }; }
+  async mcpList() { return [{ name: "dokumente", args: [], disabled: false, builtin: true }]; }
+  async mcpToggle() { return this.mcpList(); }
+  async mcpAdd() { return this.mcpList(); }
+  async mcpRemove() { return this.mcpList(); }
+  async mcpTest() { return "Connected 1/1 server(s)"; }
   async gitChanges() {
     return { repo: true, branch: "main", files: [{ path: "a.txt", status: "M" as const, additions: 1, deletions: 0 }] };
   }
@@ -969,6 +996,34 @@ await befehl.ptyWrite(1, "ls\r");
 check("und bekommt Eingaben", term.ptyGeschrieben[0] === "ls\r");
 const artUrl = await befehl.artifactUrl("a1", "html", "Test", "<h1>x</h1>");
 check("ein Artefakt wird abgelegt und hat eine Adresse", term.artefakte.get("a1") === "<h1>x</h1>" && artUrl.endsWith("/a1"));
+
+// Chats: umbenennen, anheften, suchen, exportieren.
+term.savedSessions = [
+  { id: "S0", title: "früheres Gespräch", workspace: "/tmp/alt", mode: "chat", modified: 5, turns: 4 },
+  { id: "S7", title: "älter", workspace: "/tmp/alt", mode: "chat", modified: 1, turns: 1 },
+];
+await befehl.refreshSessions();
+await befehl.renameChat("S0", "Mein Bericht");
+check("ein Chat lässt sich umbenennen", befehl.getSnapshot().sessions.find((x) => x.id === "S0")?.title === "Mein Bericht");
+await befehl.pinChat("S7", true);
+check("angeheftete Chats stehen oben", befehl.getSnapshot().sessions[0]?.id === "S7" && befehl.getSnapshot().sessions[0]?.pinned === true);
+await befehl.renameChat("S0", "");
+check("ein leerer Name bringt den von jichi zurück", befehl.getSnapshot().sessions.find((x) => x.id === "S0")?.title === "früheres Gespräch");
+check("die Suche findet im Inhalt", (await befehl.searchChats("make"))[0]?.id === "S0");
+check("Export als Markdown geht an den gewählten Ort", (await befehl.exportChat("md")) && term.exporte[0]?.[0] === "/tmp/chat.md" && term.exporte[0][1] === "md" && term.exporte[0][2].startsWith("# "));
+term.exportZiel = null;
+check("ein abgebrochener Export schreibt nichts", !(await befehl.exportChat("pdf")) && term.exporte.length === 1);
+const md = transcriptMarkdown([
+  { kind: "message", id: "1", role: "user", text: "Hallo", streaming: false, files: ["a.pdf"] },
+  { kind: "tool", id: "2", toolCallId: "t", title: "read_file a.pdf", toolKind: "read", status: "completed", output: "", truncated: false, diffs: [] },
+  { kind: "message", id: "3", role: "agent", text: "**Fertig.**", streaming: false },
+], "Test");
+check("der Export zeigt Frage, Werkzeug und Antwort", md.startsWith("# Test") && md.includes("_Angehängt: a.pdf_") && md.includes("- ✓ `read_file a.pdf`") && md.includes("## jichi\n\n**Fertig.**"), md);
+
+// Dauerhaft erlauben.
+await befehl.alwaysAllow("write_file");
+check("„Immer erlauben“ landet in jichis Erlaubnissen", term.erlaubt.allow.includes("write_file"));
+check("MCP-Server werden gelistet", (await befehl.mcpServers())[0]?.builtin === true);
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");

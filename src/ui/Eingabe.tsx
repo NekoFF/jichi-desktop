@@ -434,7 +434,13 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
   useEffect(
     () =>
       zurEingabe.listen((e) => {
-        if ("text" in e) {
+        if ("ersetzen" in e) {
+          // „Bearbeiten“ einer früheren Nachricht: sie steht wieder im Feld.
+          setText(e.ersetzen);
+          requestAnimationFrame(() => feld.current?.focus());
+        } else if ("dateien" in e) {
+          void ablegen(e.dateien);
+        } else if ("text" in e) {
           setText((alt) => (alt.trim() ? `${alt.trimEnd()}\n\n${e.text}` : e.text));
           requestAnimationFrame(() => {
             const el = feld.current;
@@ -450,6 +456,44 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       }),
     [],
   );
+
+  // Dateien über dem Fenster fallen lassen: Bilder als Bild, alles andere als Kontext.
+  async function ablegen(pfade: string[]) {
+    setFehler(null);
+    for (const p of pfade) {
+      const bild = /\.(png|jpe?g|gif|webp)$/i.test(p);
+      try {
+        if (bild) {
+          if (!snap.canAttachImages) {
+            setFehler("Das aktive Modell kann keine Bilder lesen.");
+            continue;
+          }
+          const b = await agent.readImage(p);
+          setBilder((alt) => [...alt, { id: `${Date.now()}-${Math.random()}`, data: b.data, mimeType: b.mimeType, url: `data:${b.mimeType};base64,${b.data}` }].slice(0, MAX_BILDER));
+        } else {
+          const d = await agent.attachmentFromPath(p);
+          setDateien((alt) => [...alt.filter((x) => x.path !== d.path), d]);
+        }
+      } catch (ursache) {
+        setFehler(nachricht(ursache));
+      }
+    }
+  }
+  const [schwebt, setSchwebt] = useState(false);
+  useEffect(() => {
+    let aus: (() => void) | null = null;
+    let weg = false;
+    void agent.onFileDrop((e) => {
+      if (e.kind === "over") setSchwebt(true);
+      else setSchwebt(false);
+      if (e.kind === "drop" && e.paths.length) void ablegen(e.paths);
+    }).then((f) => (weg ? f() : (aus = f)), () => {});
+    return () => {
+      weg = true;
+      aus?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snap.canAttachImages]);
 
   const leer = !text.trim() && !bilder.length && !dateien.length;
   const arbeitet = snap.canCancel;
@@ -490,8 +534,13 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
   return (
     <div className="eingabe">
       <div className="spalte">
+        {schwebt && (
+          <div className="ablage-hinweis" aria-live="polite">
+            Loslassen zum Anhängen — Bilder, PDF, Word, Excel, Text
+          </div>
+        )}
         <div
-          className={`eingabe-feld${ziehen ? " ziehen" : ""}`}
+          className={`eingabe-feld${ziehen || schwebt ? " ziehen" : ""}`}
           onDragOver={(e) => {
             if ([...e.dataTransfer.items].some((i) => i.type.startsWith("image/"))) {
               e.preventDefault();

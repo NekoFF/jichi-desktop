@@ -15,6 +15,7 @@ import {
   type Snapshot,
 } from "../core/index.ts";
 import { Bericht } from "./Einrichtung.tsx";
+import { Erlaubnisse, McpServer } from "./JichiEinstellungen.tsx";
 import { nachricht } from "./util.ts";
 
 // ── Einstellungen ────────────────────────────────────────────────────────────
@@ -216,6 +217,8 @@ export function Einstellungen({
         </div>
 
         <Dokumente snap={snap} />
+        <Erlaubnisse />
+        <McpServer />
 
         <div className="abschnitt">
           <div className="abschnitt-kopf">

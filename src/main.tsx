@@ -34,7 +34,9 @@ import {
   type Preferences,
 } from "./core/index.ts";
 import { Eingabe } from "./ui/Eingabe.tsx";
+import { ChatMenue } from "./ui/ChatMenue.tsx";
 import { Einrichtung } from "./ui/Einrichtung.tsx";
+import { Tastenkuerzel } from "./ui/Tastenkuerzel.tsx";
 import { Einstellungen } from "./ui/Einstellungen.tsx";
 import { Seitenleiste } from "./ui/Seitenleiste.tsx";
 import { Leer, Verlauf } from "./ui/Verlauf.tsx";
@@ -49,6 +51,7 @@ function App() {
   const snap = useAgent();
   const [prefs, setPrefsState] = useState<Preferences>(() => readPreferences());
   const [einstellungen, setEinstellungen] = useState(false);
+  const [tastenOffen, setTastenOffen] = useState(false);
 
   const setPrefs = useCallback((next: Preferences) => {
     setPrefsState(next);
@@ -81,6 +84,7 @@ function App() {
       if (e.ctrlKey && (e.key === "`" || e.code === "Backquote")) { e.preventDefault(); panel.terminal(); }
       if (mod && e.key === "\\") { e.preventDefault(); panel.closeActive(); }
       if (e.key === "Escape") setEinstellungen(false);
+      if (mod && e.key === "/") { e.preventDefault(); setTastenOffen((o) => !o); }
     }
     window.addEventListener("keydown", tasten);
     return () => window.removeEventListener("keydown", tasten);
@@ -94,8 +98,8 @@ function App() {
 
   // Ein Dialog über allem: der native Browser der Seitenleiste muss weichen.
   useEffect(() => {
-    panel.setOverlay(einstellungen || snap.needsSetup);
-  }, [einstellungen, snap.needsSetup]);
+    panel.setOverlay(einstellungen || snap.needsSetup || tastenOffen);
+  }, [einstellungen, snap.needsSetup, tastenOffen]);
   const p = usePanel();
 
   const punkt =
@@ -125,6 +129,7 @@ function App() {
           </div>
 
           <div className="kopf-rechts" data-tauri-drag-region>
+            <ChatMenue snap={snap} tasten={() => setTastenOffen(true)} />
             <button
               className="knopf-klein"
               disabled={!snap.canSwitch}
@@ -166,6 +171,7 @@ function App() {
       </main>
 
       <Panel snap={snap} />
+      {tastenOffen && <Tastenkuerzel schliessen={() => setTastenOffen(false)} />}
 
       {einstellungen && !snap.needsSetup && (
         <Einstellungen

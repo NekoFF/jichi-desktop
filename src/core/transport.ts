@@ -93,6 +93,10 @@ export interface LaunchSuggestion {
 export interface StoredSession {
   id: string;
   title: string;
+  /** Angeheftet (Anwendung, nicht jichi). */
+  pinned?: boolean;
+  /** Der Titel, den jichi vergeben hat — wenn der Benutzer umbenannt hat. */
+  originalTitle?: string;
   workspace: string | null;
   mode: string | null;
   /** Sekunden seit Epoche. Formatierung ist Sache der Oberfläche. */
@@ -171,6 +175,36 @@ export interface SheetPreview {
   rows: string[][];
   truncated: boolean;
 }
+
+/** Was diese Anwendung zu einem Chat merkt: eigener Name, angeheftet. */
+export interface ChatMeta {
+  title?: string;
+  pinned?: boolean;
+}
+
+export interface ChatHit {
+  id: string;
+  snippet: string;
+  role: string;
+}
+
+export interface Permissions {
+  allow: string[];
+  deny: string[];
+  allowAll: boolean;
+  denyAll: boolean;
+}
+
+export interface McpServerEntry {
+  name: string;
+  command?: string | null;
+  args: string[];
+  url?: string | null;
+  disabled: boolean;
+  builtin: boolean;
+}
+
+export type ExportFormat = "md" | "docx" | "pdf";
 
 /** Eine Datei mit Änderungen gegenüber dem letzten Commit. */
 export interface GitChange {
@@ -331,6 +365,30 @@ export interface Transport {
   browserClose(id: string): Promise<void>;
   onBrowser(f: (s: BrowserState) => void): Promise<() => void>;
 
+  // ── Chats ──────────────────────────────────────────────────────────────────
+  chatsMeta(): Promise<Record<string, ChatMeta>>;
+  /** `rename`: ob `title` gilt — `null` entfernt den eigenen Namen. */
+  chatMetaSet(id: string, rename: boolean, title: string | null, pinned: boolean | null): Promise<Record<string, ChatMeta>>;
+  searchChats(query: string): Promise<ChatHit[]>;
+  /** Speichern-Dialog mit Vorschlag und Endung. */
+  pickExportLocation(defaultName: string, ext: ExportFormat): Promise<string | null>;
+  exportChat(dest: string, format: ExportFormat, title: string, markdown: string): Promise<void>;
+
+  // ── Ziehen und Ablegen, Mitteilungen ───────────────────────────────────────
+  /** Dateien, die über dem Fenster losgelassen werden (echte Pfade). */
+  onFileDrop(f: (e: { kind: "over" | "drop" | "leave"; paths: string[] }) => void): Promise<() => void>;
+  readImage(path: string): Promise<{ mimeType: string; data: string }>;
+  notify(title: string, body: string): Promise<void>;
+
+  // ── jichis Einstellungen ───────────────────────────────────────────────────
+  permissionsGet(): Promise<Permissions>;
+  permissionsSet(allow: string[], deny: string[]): Promise<Permissions>;
+  mcpList(): Promise<McpServerEntry[]>;
+  mcpToggle(name: string, enable: boolean): Promise<McpServerEntry[]>;
+  mcpAdd(name: string, command: string, args: string[]): Promise<McpServerEntry[]>;
+  mcpRemove(name: string): Promise<McpServerEntry[]>;
+  mcpTest(program: string, env: EnvSpec[]): Promise<string>;
+
   // ── Artefakte ──────────────────────────────────────────────────────────────
   artifactPut(id: string, lang: string, title: string, code: string): Promise<void>;
   /** Adresse eines abgelegten Artefakts für das iframe. */
@@ -446,6 +504,42 @@ export const tauriTransport: Transport = {
   async onBrowser(f) {
     return listen<BrowserState>("browser-stand", (e) => f(e.payload));
   },
+
+  chatsMeta: () => invoke<Record<string, ChatMeta>>("chats_meta").catch(fail),
+  chatMetaSet: (id, rename, title, pinned) =>
+    invoke<Record<string, ChatMeta>>("chat_meta_set", { id, rename, title, pinned }).catch(fail),
+  searchChats: (query) => invoke<ChatHit[]>("search_chats", { query }).catch(fail),
+  async pickExportLocation(defaultName, ext) {
+    const names: Record<ExportFormat, string> = { md: "Markdown", docx: "Word", pdf: "PDF" };
+    const picked = await save({ defaultPath: defaultName, title: "Chat exportieren", filters: [{ name: names[ext], extensions: [ext] }] }).catch(fail);
+    return typeof picked === "string" ? picked : null;
+  },
+  exportChat: (dest, format, title, markdown) => invoke<void>("export_chat", { dest, format, title, markdown }).catch(fail),
+
+  async onFileDrop(f) {
+    const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+    return getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "over" || p.type === "enter") f({ kind: "over", paths: "paths" in p ? p.paths : [] });
+      else if (p.type === "drop") f({ kind: "drop", paths: p.paths });
+      else f({ kind: "leave", paths: [] });
+    });
+  },
+  readImage: (path) => invoke<{ mimeType: string; data: string }>("read_image", { path }).catch(fail),
+  async notify(title, body) {
+    const n = await import("@tauri-apps/plugin-notification");
+    let ok = await n.isPermissionGranted();
+    if (!ok) ok = (await n.requestPermission()) === "granted";
+    if (ok) n.sendNotification({ title, body });
+  },
+
+  permissionsGet: () => invoke<Permissions>("permissions_get").catch(fail),
+  permissionsSet: (allow, deny) => invoke<Permissions>("permissions_set", { allow, deny }).catch(fail),
+  mcpList: () => invoke<McpServerEntry[]>("mcp_list").catch(fail),
+  mcpToggle: (name, enable) => invoke<McpServerEntry[]>("mcp_toggle", { name, enable }).catch(fail),
+  mcpAdd: (name, command, args) => invoke<McpServerEntry[]>("mcp_add", { name, command, args }).catch(fail),
+  mcpRemove: (name) => invoke<McpServerEntry[]>("mcp_remove", { name }).catch(fail),
+  mcpTest: (program, env) => invoke<string>("mcp_test", { program, env }).catch(fail),
 
   artifactPut: (id, lang, title, code) => invoke<void>("artifact_put", { id, lang, title, code }).catch(fail),
   // Unter Windows heisst ein eigenes Schema http://<name>.localhost.
