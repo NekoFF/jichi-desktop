@@ -92,6 +92,13 @@ html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1
   display: flex; flex-direction: column; min-width: 0;
   background: var(--color-surface-container-low);
   border-right: 1px solid var(--color-outline-variant);
+  /* Suchfeld und Auswahl als Tönung *über* der Fläche, nicht als eigene Farbe:
+     so heben sie sich auf der grauen (Klassisch) wie auf der weißen Leiste
+     (Freistehend) gleich stark ab, hell wie dunkel. Die Stärken entsprechen
+     dem Abstand, den Klassisch schon immer hatte. */
+  --seite-feld: color-mix(in srgb, var(--color-on-surface) 3.5%, transparent);
+  --seite-hover: color-mix(in srgb, var(--color-on-surface) 5%, transparent);
+  --seite-aktiv: color-mix(in srgb, var(--color-on-surface) 6.5%, transparent);
 }
 
 .marke {
@@ -115,9 +122,9 @@ html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1
   color: var(--color-on-surface); text-align: left;
   transition: background .1s ease;
 }
-.zeile:hover:not(:disabled) { background: var(--color-surface-container-high); }
+.zeile:hover:not(:disabled) { background: var(--seite-hover, var(--color-surface-container-high)); }
 .zeile:disabled, .vorschlag:disabled, .knopf-klein:disabled, .sitzung button:disabled { opacity: .45; cursor: default; }
-.zeile.aktiv { background: var(--color-surface-container-high); font-weight: 500; }
+.zeile.aktiv { background: var(--seite-aktiv, var(--color-surface-container-high)); font-weight: 500; }
 .zeile > svg { flex: none; color: var(--color-on-surface-variant); }
 .zeile > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zeile kbd {
@@ -129,8 +136,8 @@ html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1
   display: flex; align-items: center; height: var(--zeile);
   border-radius: var(--r); transition: background .1s ease;
 }
-.sitzung:hover, .sitzung:focus-within { background: var(--color-surface-container-high); }
-.sitzung.aktiv { background: var(--color-surface-container-high); font-weight: 500; }
+.sitzung:hover, .sitzung:focus-within { background: var(--seite-hover); }
+.sitzung.aktiv { background: var(--seite-aktiv); font-weight: 500; }
 .sitzung-oeffnen {
   display: flex; align-items: center; flex: 1; min-width: 0; height: 100%;
   padding: 0 8px; text-align: left;
@@ -143,10 +150,11 @@ html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1
 }
 .sitzung:hover .sitzung-loeschen,
 .sitzung:focus-within .sitzung-loeschen { opacity: 1; }
-.sitzung-loeschen:hover { background: var(--color-surface-container); color: var(--color-error); }
+.sitzung-loeschen:hover { background: var(--seite-hover); color: var(--color-error); }
 .sitzung-loeschen:focus-visible { opacity: 1; outline: 2px solid var(--color-primary); outline-offset: -2px; }
 
-.suche { background: var(--color-surface-container); margin-bottom: 2px; }
+.suche { background: var(--seite-feld); margin-bottom: 2px; }
+.suche:focus-within { background: var(--seite-hover); }
 .suche input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; }
 .suche input::placeholder { color: var(--color-on-surface-variant); }
 
