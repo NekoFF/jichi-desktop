@@ -55,14 +55,39 @@ export function writePreferences(preferences: Preferences): void {
 }
 
 /**
- * Das Erscheinungsbild auf das Dokument anwenden.
+ * Welches Thema tatsächlich gilt.
  *
- * `data-theme` ist die Fläche, auf der auch das Design System sein helles und
- * dunkles Thema unterscheidet — bei `"system"` wird nichts gesetzt, dann
- * entscheidet die Voreinstellung des Betriebssystems.
+ * `"system"` muss hier aufgelöst werden und nicht im Stylesheet: die Tokens des
+ * Design Systems schalten ausschließlich über `[data-theme="dark"]` um und
+ * kennen bewusst keine `prefers-color-scheme`-Abfrage. Ohne diese Auflösung
+ * bliebe die Anwendung auch auf einem dunkel eingestellten Rechner hell.
  */
+export function resolveAppearance(appearance: Appearance): "light" | "dark" {
+  if (appearance !== "system") return appearance;
+  try {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
 export function applyAppearance(appearance: Appearance): void {
-  const root = document.documentElement;
-  if (appearance === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", appearance);
+  document.documentElement.setAttribute("data-theme", resolveAppearance(appearance));
+}
+
+/**
+ * Der Systemeinstellung folgen, solange `"system"` gewählt ist. Der Rückgabewert
+ * löst die Bindung.
+ */
+export function watchAppearance(current: () => Appearance): () => void {
+  try {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const react = () => {
+      if (current() === "system") applyAppearance("system");
+    };
+    query.addEventListener("change", react);
+    return () => query.removeEventListener("change", react);
+  } catch {
+    return () => {};
+  }
 }

@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>jichi</title>
+    <script>
+      // Vor dem ersten Zeichnen, sonst blitzt bei dunkler Einstellung kurz
+      // die helle Fassung auf.
+      (function () {
+        try {
+          var gespeichert = JSON.parse(localStorage.getItem("jichi-desktop.preferences.v1") || "{}");
+          var wahl = gespeichert.appearance || "system";
+          var dunkel = wahl === "dark" || (wahl === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-theme", dunkel ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

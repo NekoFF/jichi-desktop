@@ -46,6 +46,8 @@ export {
   applyAppearance,
   DEFAULT_PREFERENCES,
   readPreferences,
+  resolveAppearance,
+  watchAppearance,
   writePreferences,
   type Appearance,
   type Preferences,

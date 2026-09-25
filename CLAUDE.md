@@ -10,12 +10,11 @@ und gilt in beide Richtungen.
 | `src-tauri/**` | **Kern** | für die Oberfläche gesperrt |
 | `src/core/**` | **Kern** | für die Oberfläche gesperrt |
 | `docs/CONTRACT.md` | **Kern** | beschreibt die Naht; nur der Kern ändert sie |
-| `index.html` | Oberfläche | ersetzen |
-| `src/main.ts` | Oberfläche | ersetzen (heute die Referenzansicht) |
-| `src/styles.css` | Oberfläche | ersetzen |
-| `src/components/**`, `src/ui/**` | Oberfläche | neu |
-| `package.json`, `tsconfig.json`, `vite.config.ts` | Oberfläche | ab jetzt; der Kern fasst sie nicht mehr an |
+| `index.html`, `src/main.tsx`, `src/styles.css` | **Kern** | seit der Übernahme der Gestaltung |
 | `README.md` | Kern | |
+
+Die Arbeitsteilung von vorher ist aufgehoben: Kern **und** Oberfläche liegen
+wieder in einer Hand, auf `main`. Der Zweig `design/jlu` ist zusammengeführt.
 
 **Fehlt der Oberfläche etwas aus dem Kern, wird es im Kern ergänzt und in
 `docs/CONTRACT.md` eingetragen — nicht daran vorbeigearbeitet.**
@@ -24,12 +23,19 @@ und gilt in beide Richtungen.
 
 1. `import { agent } from "./core/index.ts"` ist der einzige Zugang. Kein
    `invoke`, kein `listen`, kein `@tauri-apps/api` in einer Komponente.
-2. Keine festen Farben. Nur semantische Token des JLU Design System
-   (`bg-surface`, `text-on-surface`, `border-outline-variant`, …), nie
-   `bg-blue-500` und nie `style={{ color: "#123456" }}`.
-3. Keine eigenen Grundbausteine. Erst im Design System suchen (`Button`,
-   `Card`, `Dialog`, `Badge`, `Tooltip`, `PromptInput`, Layouts).
-4. Der API-Schlüssel wird nie entgegengenommen und nie gespeichert — die
+2. Keine festen Farben. Nur die semantischen Token des JLU Design System
+   (`--color-surface`, `--color-on-surface`, `--color-outline-variant`, …),
+   nie ein `#123456` im Regelwerk.
+3. **Maße kommen nicht aus dem Design System.** Dessen Komponenten folgen
+   Material 3 und sind für den Finger gerastert (Zeilen um 48 px); auf dem
+   Schreibtisch wirkt das wie eine Fernsehoberfläche. Diese Anwendung baut ihr
+   Gerüst deshalb selbst und hält die Dichte eines Fensterprogramms: Zeilen
+   30 px, Bedienschrift 13 px, Text 14 px. Alle Maße stehen in `:root` von
+   `src/styles.css` — dort ändern, nirgends sonst.
+4. Kein Regelwerk, das sich an die innere Struktur einer fremden Komponente
+   klammert (`> div[id] > div:first-child`). Das hält bis zu deren nächster
+   Fassung.
+5. Der API-Schlüssel wird nie entgegengenommen und nie gespeichert — die
    Einstellungen kennen nur den **Pfad** zu seiner Datei.
 
 ## Vor jeder Übergabe
