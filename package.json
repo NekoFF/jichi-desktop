@@ -8,8 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "check": "tsc --noEmit && node src/core/selftest.ts",
-    "check:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "check": "tsc --noEmit && node src/core/selftest.ts && vitest run",
+    "check:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:ui": "vitest run"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -37,10 +38,14 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^5.0.2"
   }
 }
