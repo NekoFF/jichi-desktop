@@ -202,23 +202,49 @@ fn which(program: &str) -> Option<PathBuf> {
 /// begrenzt und bricht lieber ergebnislos ab, als lange zu graben.
 const SCAN_MAX_DEPTH: usize = 4;
 const SCAN_MAX_DIRS: usize = 5000;
+/// Und eine Uhr darüber. Verzeichnisse zu zählen schätzt den Aufwand schlecht:
+/// ein Netzlaufwerk oder ein nachgeladener Cloud-Ordner kostet je Eintrag ein
+/// Vielfaches eines lokalen. Gemessen wurde auf diesem Rechner eine kalte Suche
+/// von knapp einer Minute — so lange darf ein Programmstart nicht schweigen.
+/// Nach Ablauf wird aufgegeben und nach dem Pfad gefragt; das ist ehrlicher als
+/// ein Fenster, das sich nicht rührt.
+const SCAN_MAX_TIME: std::time::Duration = std::time::Duration::from_secs(4);
 
-/// Verzeichnisse, in denen kein selbst gebautes Programm liegt, die aber sehr
-/// viele Dateien enthalten. Ohne diese Liste dauert die Suche Sekunden statt
-/// Millisekunden.
+/// Verzeichnisse, die die Suche nicht betritt.
+///
+/// Zwei Gründe, und der zweite wiegt schwerer als der erste.
+///
+/// **Geschwindigkeit:** `node_modules` und `target` enthalten Zehntausende
+/// Dateien und nie ein gesuchtes Programm.
+///
+/// **Ruhe:** macOS bewacht `Desktop`, `Documents`, `Downloads` und die
+/// Medienordner einzeln. Schon ein Blick hinein lässt das System den Benutzer
+/// um Erlaubnis fragen — und bei einer Entwicklungsfassung, die bei jedem Bauen
+/// eine neue Signatur bekommt, fragt es bei **jedem Start erneut**. Eine Suche,
+/// die den Benutzer bei jedem Start vier Dialoge wegklicken lässt, ist keine
+/// Hilfe mehr. Wer sein Programm dort liegen hat, trägt den Pfad einmal in den
+/// erweiterten Einstellungen ein; alle anderen merken nichts.
 fn skip_dir(name: &str) -> bool {
     name.starts_with('.')
         || matches!(
             name,
-            "Library"
-                | "Applications"
-                | "node_modules"
-                | "target"
+            // Vom System bewacht -- ein Blick hinein kostet einen Dialog.
+            "Desktop"
+                | "Documents"
+                | "Downloads"
                 | "Music"
                 | "Movies"
                 | "Pictures"
                 | "Photos"
                 | "Public"
+                | "Library"
+                | "Applications"
+                | "Mobile Documents"
+                // Gross und aussichtslos.
+                | "node_modules"
+                | "target"
+                | "vendor"
+                | "Trash"
         )
 }
 
@@ -230,10 +256,11 @@ fn skip_dir(name: &str) -> bool {
 fn scan_for(root: &Path, program: &str) -> Option<PathBuf> {
     let mut queue = VecDeque::from([(root.to_path_buf(), 0usize)]);
     let mut visited = 0usize;
+    let start = std::time::Instant::now();
 
     while let Some((dir, depth)) = queue.pop_front() {
         visited += 1;
-        if visited > SCAN_MAX_DIRS {
+        if visited > SCAN_MAX_DIRS || start.elapsed() > SCAN_MAX_TIME {
             return None;
         }
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -262,8 +289,51 @@ fn scan_for(root: &Path, program: &str) -> Option<PathBuf> {
     None
 }
 
-/// Gefundene Pfade merken. Nur Treffer — ein Fehlschlag wird erneut gesucht,
-/// damit ein eben erst gebautes Programm ohne Neustart gefunden wird.
+/// Wo diese Anwendung ihre eigenen Notizen ablegt. Kein bewachter Ort, also
+/// auch kein Dialog.
+fn app_dir() -> Option<PathBuf> {
+    // Damit Prüfungen nicht in die echten Notizen des Benutzers schreiben.
+    if let Some(override_dir) = std::env::var_os("JICHI_DESKTOP_DIR") {
+        let dir = PathBuf::from(override_dir);
+        std::fs::create_dir_all(&dir).ok()?;
+        return Some(dir);
+    }
+    let h = home()?;
+    let dir = if cfg!(target_os = "macos") {
+        h.join("Library/Application Support").join(SECRET_SERVICE)
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or(h)
+            .join(SECRET_SERVICE)
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| h.join(".config"))
+            .join(SECRET_SERVICE)
+    };
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn found_file() -> Option<PathBuf> {
+    Some(app_dir()?.join("gefunden.json"))
+}
+
+fn read_found() -> BTreeMap<String, String> {
+    found_file()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// Gefundene Pfade merken — im Speicher und auf der Platte.
+///
+/// Die Platte ist der eigentliche Punkt. Ohne sie liefe die Suche bei jedem
+/// Programmstart neu, und das ist genau der Moment, in dem das System nach
+/// Erlaubnis fragt. Mit ihr wird höchstens **einmal** gesucht: danach steht der
+/// Pfad fest und wird nur noch daraufhin geprüft, ob er noch existiert.
+/// Verschwindet das Programm, fällt der Eintrag weg und es wird erneut gesucht.
 fn scan_home(program: &str) -> Option<PathBuf> {
     static CACHE: OnceLock<Mutex<BTreeMap<String, PathBuf>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
@@ -273,9 +343,26 @@ fn scan_home(program: &str) -> Option<PathBuf> {
             return Some(hit);
         }
     }
+
+    let mut notiert = read_found();
+    if let Some(hit) = notiert.get(program).map(PathBuf::from) {
+        if is_executable(&hit) {
+            if let Ok(mut c) = cache.lock() {
+                c.insert(program.to_string(), hit.clone());
+            }
+            return Some(hit);
+        }
+        notiert.remove(program); // weggezogen: Notiz ist wertlos
+    }
+
     let found = scan_for(&home()?, program)?;
+
     if let Ok(mut c) = cache.lock() {
         c.insert(program.to_string(), found.clone());
+    }
+    notiert.insert(program.to_string(), found.to_string_lossy().into_owned());
+    if let (Some(path), Ok(text)) = (found_file(), serde_json::to_string_pretty(&notiert)) {
+        let _ = std::fs::write(path, text);
     }
     Some(found)
 }
@@ -350,14 +437,110 @@ fn secret_entry(account: &str) -> Result<keyring::Entry, String> {
         .map_err(|e| format!("Schlüsselbund nicht erreichbar: {e}"))
 }
 
-/// Nur innerhalb dieses Moduls. Bewusst **kein** `#[tauri::command]`.
+/// Eine Notiz darüber, *dass* ein Schlüssel hinterlegt wurde — nie welcher.
+///
+/// Der Grund ist das Verhalten von macOS: der Schlüsselbund bindet seine
+/// Erlaubnis an die Signatur des fragenden Programms, und eine
+/// Entwicklungsfassung bekommt bei jedem Bauen eine neue. Jeder Zugriff kann
+/// also einen Dialog auslösen. Die Frage „ist überhaupt ein Schlüssel da?“
+/// stellt diese Anwendung beim Start mehrfach — für den Startvorschlag, für die
+/// Bereitschaft, für die Anzeige. Würde sie dafür jedes Mal den Schlüsselbund
+/// öffnen, fragte das System mehrfach nach dem Passwort, **bevor** überhaupt
+/// etwas passiert ist.
+///
+/// Darum steht die Antwort auf diese Frage in einer eigenen, harmlosen Datei.
+/// Sie enthält kein Geheimnis, nur einen Namen und ein Ja. Der Schlüsselbund
+/// wird ab jetzt an genau einer Stelle geöffnet: wenn der Agent wirklich
+/// startet und den Wert braucht.
+fn notes_file() -> Option<PathBuf> {
+    Some(app_dir()?.join("schluessel.json"))
+}
+
+fn read_notes() -> BTreeMap<String, bool> {
+    notes_file()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+fn note_secret(account: &str, present: bool) {
+    let mut notes = read_notes();
+    if present {
+        notes.insert(account.to_string(), true);
+    } else {
+        notes.remove(account);
+    }
+    if let (Some(path), Ok(text)) = (notes_file(), serde_json::to_string_pretty(&notes)) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
+/// Ohne den Schlüsselbund zu öffnen. Kann irren, wenn jemand den Eintrag von
+/// Hand aus der Schlüsselbundverwaltung löscht — dann scheitert der nächste
+/// Start mit einer klaren Meldung, und das ist der richtige Ort dafür.
+///
+/// Gibt es die Notizdatei noch gar nicht, wurde der Schlüssel von einer älteren
+/// Fassung hinterlegt, die ohne Notizen auskam. Dann — und nur dann — wird der
+/// Schlüsselbund ein einziges Mal gefragt und das Ergebnis vermerkt. Ohne diesen
+/// Übergang stünde der Benutzer vor einem Einrichtungsbildschirm, der einen
+/// Schlüssel verlangt, den er längst hinterlegt hat.
+fn secret_noted(account: &str) -> bool {
+    if let Some(vermerkt) = read_notes().get(account).copied() {
+        return vermerkt;
+    }
+    if notes_file().map(|p| p.exists()).unwrap_or(false) {
+        return false; // Notizen gibt es, dieses Konto steht nicht darin.
+    }
+    // Einmalig, beim ersten Start nach der Umstellung.
+    let vorhanden = secret_read(account).is_some();
+    if !vorhanden {
+        note_secret(account, false);
+        // Auch ein "nichts da" muss vermerkt werden, sonst fragt der nächste
+        // Start wieder -- und das ist genau die Schleife, die weg soll.
+        if let (Some(path), Ok(text)) =
+            (notes_file(), serde_json::to_string_pretty(&read_notes()))
+        {
+            let _ = std::fs::write(path, text);
+        }
+    }
+    vorhanden
+}
+
+/// Den Wert holen. Nur innerhalb dieses Moduls, bewusst **kein**
+/// `#[tauri::command]` — und höchstens einmal je Programmlauf, damit aus einem
+/// Dialog nicht vier werden.
+fn secret_cache() -> Option<&'static Mutex<BTreeMap<String, String>>> {
+    static CACHE: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
+    Some(CACHE.get_or_init(|| Mutex::new(BTreeMap::new())))
+}
+
 fn secret_read(account: &str) -> Option<String> {
-    secret_entry(account)
+    let cache = secret_cache()?;
+
+    if let Some(hit) = cache.lock().ok().and_then(|c| c.get(account).cloned()) {
+        return Some(hit);
+    }
+    let value = secret_entry(account)
         .ok()?
         .get_password()
         .ok()
         .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+        .filter(|v| !v.is_empty())?;
+
+    if let Ok(mut c) = cache.lock() {
+        c.insert(account.to_string(), value.clone());
+    }
+    note_secret(account, true);
+    Some(value)
+}
+
+/// Den gemerkten Wert vergessen (nach dem Entfernen).
+fn secret_uncache(account: &str) {
+    if let Some(cache) = secret_cache() {
+        if let Ok(mut c) = cache.lock() {
+            c.remove(account);
+        }
+    }
 }
 
 #[tauri::command]
@@ -369,16 +552,30 @@ fn secret_store(account: String, value: String) -> Result<(), String> {
     secret_entry(&account)?
         .set_password(value)
         // Die Meldung nennt den Fehler, niemals den Wert.
-        .map_err(|e| format!("Der Schlüssel konnte nicht abgelegt werden: {e}"))
+        .map_err(|e| format!("Der Schlüssel konnte nicht abgelegt werden: {e}"))?;
+
+    // Gleich merken: so braucht der erste Start danach den Schlüsselbund nicht
+    // noch einmal, nur um zu wissen, dass es ihn gibt.
+    if let Some(cache) = secret_cache() {
+        if let Ok(mut c) = cache.lock() {
+            c.insert(account.clone(), value.to_string());
+        }
+    }
+    note_secret(&account, true);
+    Ok(())
 }
 
+/// Beantwortet aus der Notiz, nicht aus dem Schlüsselbund — sonst kostet die
+/// Frage einen Dialog.
 #[tauri::command]
 fn secret_present(account: String) -> bool {
-    secret_read(&account).is_some()
+    secret_noted(&account)
 }
 
 #[tauri::command]
 fn secret_forget(account: String) -> Result<(), String> {
+    secret_uncache(&account);
+    note_secret(&account, false);
     match secret_entry(&account)?.delete_credential() {
         Ok(()) => Ok(()),
         // Nicht vorhanden ist kein Fehler: das Ziel ist erreicht.
@@ -646,7 +843,7 @@ fn readiness() -> Readiness {
     let agent = launch.resolved.clone();
     let version = agent.as_deref().and_then(|_| probe(launch.program.clone()).ok());
     let config = read_config();
-    let key_stored = secret_read(KEY_ENV).is_some();
+    let key_stored = secret_noted(KEY_ENV);
 
     Readiness {
         needs_setup: agent.is_none() || !config.exists || config.models.is_empty() || !key_stored,
@@ -714,7 +911,7 @@ fn default_launch() -> Launch {
 
     // Der Schlüsselbund gewinnt. Eine Datei bleibt der zweite Weg — für einen
     // Rechner ohne Schlüsselbund, und für den, der seine Datei schon hat.
-    let env: Vec<EnvHint> = if secret_read(KEY_ENV).is_some() {
+    let env: Vec<EnvHint> = if secret_noted(KEY_ENV) {
         vec![EnvHint { name: KEY_ENV.into(), secret: Some(KEY_ENV.into()), file: None }]
     } else {
         key_file_candidates()
@@ -1033,6 +1230,18 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    /// Alle Prüfungen arbeiten in einem eigenen Verzeichnis. Ohne das schrieben
+    /// sie in die Notizen des Benutzers — und eine Prüfung, die den geprüften
+    /// Rechner verändert, ist keine Prüfung mehr.
+    fn eigene_ablage() {
+        static EINMAL: OnceLock<()> = OnceLock::new();
+        EINMAL.get_or_init(|| {
+            let dir = std::env::temp_dir().join("jichi-desktop-test-ablage");
+            std::fs::remove_dir_all(&dir).ok();
+            std::env::set_var("JICHI_DESKTOP_DIR", &dir);
+        });
+    }
+
     #[test]
     fn tilde_wird_aufgeloest() {
         let h = home().expect("HOME ist gesetzt");
@@ -1063,6 +1272,7 @@ mod tests {
 
     #[test]
     fn which_findet_im_pfad_und_als_pfad() {
+        eigene_ablage();
         assert_eq!(which("sh"), Some(PathBuf::from("/bin/sh")));
         assert_eq!(which("/bin/sh"), Some(PathBuf::from("/bin/sh")));
         assert_eq!(which("gibt-es-ganz-sicher-nicht-42"), None);
@@ -1167,6 +1377,7 @@ mod tests {
 
     #[test]
     fn heimatsuche_findet_das_gebaute_programm() {
+        eigene_ablage();
         let root = std::env::temp_dir().join("jichi-desktop-test-scan");
         std::fs::remove_dir_all(&root).ok();
 
@@ -1227,6 +1438,7 @@ mod tests {
     #[test]
     #[ignore = "greift auf den Schlüsselbund des Systems zu"]
     fn schluesselbund_haelt_und_gibt_zurueck() {
+        eigene_ablage();
         let konto = "jichi-desktop-test-konto";
         let wert = "geheim-fuer-den-test-12345";
 
@@ -1297,6 +1509,7 @@ mod tests {
 
     #[test]
     fn bereitschaft_beantwortet_die_eine_frage() {
+        eigene_ablage();
         let r = readiness();
         assert_eq!(r.key_env, "JICHI_API_KEY");
         // Fehlt irgendetwas, muss der erste Start verlangt werden.
@@ -1374,7 +1587,50 @@ mod tests {
     }
 
     #[test]
+    fn die_suche_meidet_bewachte_ordner() {
+        // macOS fragt für jeden dieser Ordner einzeln um Erlaubnis. Die Suche
+        // darf sie nie betreten, sonst klickt der Benutzer bei jedem Start.
+        for bewacht in [
+            "Desktop", "Documents", "Downloads", "Music", "Movies", "Pictures",
+            "Photos", "Library", "Applications", "Mobile Documents",
+        ] {
+            assert!(skip_dir(bewacht), "{bewacht} wird betreten");
+        }
+        assert!(skip_dir(".ssh"), "versteckte Ordner werden betreten");
+        // Und ein gewöhnlicher Projektordner muss weiter durchsucht werden.
+        assert!(!skip_dir("projekte"));
+        assert!(!skip_dir("FOLDER1HOME"));
+    }
+
+    #[test]
+    fn die_suche_gibt_rechtzeitig_auf() {
+        eigene_ablage();
+        // Ein Baum, in dem es nichts zu finden gibt: die Suche muss innerhalb
+        // ihres Zeitbudgets zurückkommen, nicht erst wenn sie fertig ist.
+        let start = std::time::Instant::now();
+        let _ = scan_for(&home().unwrap(), "gibt-es-hier-ganz-sicher-nicht-4711");
+        let gebraucht = start.elapsed();
+        assert!(
+            gebraucht < SCAN_MAX_TIME + std::time::Duration::from_secs(2),
+            "die Suche lief {gebraucht:?}, erlaubt sind {SCAN_MAX_TIME:?}"
+        );
+    }
+
+    #[test]
+    fn die_notiz_beantwortet_ohne_schluesselbund() {
+        eigene_ablage();
+        let konto = "jichi-desktop-test-notiz";
+        note_secret(konto, true);
+        assert!(secret_noted(konto));
+        note_secret(konto, false);
+        assert!(!secret_noted(konto));
+        // Und ein nie gesehenes Konto ist schlicht nicht vermerkt.
+        assert!(!secret_noted("jichi-desktop-test-nie-dagewesen"));
+    }
+
+    #[test]
     fn startvorschlag_ist_vollstaendig() {
+        eigene_ablage();
         let launch = default_launch();
         assert!(!launch.program.is_empty());
         assert!(launch.args.contains(&"--acp".to_string()));
