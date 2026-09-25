@@ -1542,6 +1542,67 @@ fn read_attachment_now(path: &str) -> Result<Attachment, String> {
     })
 }
 
+// ── Dateien, die der Agent erzeugt hat ───────────────────────────────────────
+//
+// Unter einer fertigen Werkzeugkarte steht die Datei, die dabei entstand —
+// öffnen, im Finder zeigen, anderswo speichern. Jeder Befehl prüft selbst,
+// dass die Datei im Projekt liegt: die Oberfläche nennt nur einen Pfad.
+
+/// Endungen, die „Öffnen“ an das Standardprogramm gibt. Alles andere (ein
+/// Skript, eine .app, eine .command-Datei) würde beim Öffnen *ausgeführt* —
+/// dafür gibt es nur „Im Finder zeigen“.
+const OPENABLE: &[&str] = &[
+    "pdf", "docx", "doc", "xlsx", "xls", "ods", "odt", "pptx", "csv", "tsv", "txt", "md", "markdown",
+    "json", "xml", "yaml", "yml", "toml", "log", "png", "jpg", "jpeg", "gif", "webp", "svg", "rtf",
+];
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileInfo {
+    path: String,
+    name: String,
+    size: u64,
+    modified: u64,
+    openable: bool,
+}
+
+fn project_file(cwd: &str, path: &str) -> Result<PathBuf, String> {
+    let root = expand_tilde(cwd).canonicalize().map_err(|_| format!("{cwd} ist nicht lesbar"))?;
+    let p = expand_tilde(path);
+    let full = if p.is_absolute() { p } else { root.join(p) };
+    let file = full.canonicalize().map_err(|_| format!("{path} gibt es nicht (mehr)."))?;
+    if !file.starts_with(&root) {
+        return Err("Die Datei liegt ausserhalb des Projekts.".into());
+    }
+    if !file.is_file() {
+        return Err(format!("{path} ist keine Datei."));
+    }
+    Ok(file)
+}
+
+fn openable(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| OPENABLE.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn file_info_now(cwd: &str, path: &str) -> Result<FileInfo, String> {
+    let file = project_file(cwd, path)?;
+    let meta = file.metadata().map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(FileInfo {
+        name: file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        size: meta.len(),
+        modified: meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        openable: openable(&file),
+        path: file.to_string_lossy().into_owned(),
+    })
+}
+
 /// Eine Zeile an den Agenten. Der Zeilenumbruch gehört zum Rahmen des
 /// Protokolls und wird hier angehängt, nicht vom Aufrufer.
 #[tauri::command]
@@ -1607,6 +1668,44 @@ async fn acp_start(
 #[tauri::command]
 async fn acp_stop(app: AppHandle) -> Result<(), String> {
     blocking(move || stop_inner(app.state::<Acp>().inner())).await
+}
+
+#[tauri::command]
+async fn file_info(cwd: String, path: String) -> Result<FileInfo, String> {
+    blocking(move || file_info_now(&cwd, &path)).await?
+}
+
+#[tauri::command]
+fn open_file(app: AppHandle, cwd: String, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let file = project_file(&cwd, &path)?;
+    if !openable(&file) {
+        return Err("Diese Art Datei wird nicht geöffnet, nur im Finder gezeigt.".into());
+    }
+    app.opener()
+        .open_path(file.to_string_lossy(), None::<&str>)
+        .map_err(|e| format!("Konnte nicht geöffnet werden: {e}"))
+}
+
+#[tauri::command]
+fn reveal_file(app: AppHandle, cwd: String, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let file = project_file(&cwd, &path)?;
+    app.opener().reveal_item_in_dir(&file).map_err(|e| format!("Konnte nicht gezeigt werden: {e}"))
+}
+
+/// Eine Kopie dorthin, wo der Benutzer sie im Speichern-Dialog haben will.
+#[tauri::command]
+async fn save_file_copy(cwd: String, path: String, dest: String) -> Result<(), String> {
+    blocking(move || {
+        let file = project_file(&cwd, &path)?;
+        let dest = expand_tilde(&dest);
+        if dest == file {
+            return Ok(());
+        }
+        std::fs::copy(&file, &dest).map(|_| ()).map_err(|e| format!("{}: {e}", dest.display()))
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -1720,6 +1819,10 @@ pub fn run() {
             read_attachment,
             documents_status,
             documents_set,
+            file_info,
+            open_file,
+            reveal_file,
+            save_file_copy,
             read_workspace_file,
             term_create,
             term_output,
@@ -2046,6 +2149,26 @@ mod tests {
         // Ein Objekt statt einer Liste wird nicht umgedeutet.
         std::fs::write(&cfg, r#"{"mcpServers":{"fs":{}}}"#).unwrap();
         assert!(docs_set_in(&cfg, &exe, true).is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn nur_projektdateien_und_nur_harmlose_werden_geoeffnet() {
+        let root = std::env::temp_dir().join("jichi-desktop-test-dateikarte");
+        std::fs::remove_dir_all(&root).ok();
+        let projekt = root.join("projekt");
+        std::fs::create_dir_all(&projekt).unwrap();
+        std::fs::write(projekt.join("bericht.pdf"), "%PDF").unwrap();
+        std::fs::write(projekt.join("los.command"), "#!/bin/sh").unwrap();
+        std::fs::write(root.join("draussen.pdf"), "%PDF").unwrap();
+        let cwd = projekt.to_str().unwrap();
+
+        let info = file_info_now(cwd, "bericht.pdf").unwrap();
+        assert_eq!((info.name.as_str(), info.size, info.openable), ("bericht.pdf", 4, true));
+        assert!(!file_info_now(cwd, "los.command").unwrap().openable, "ein Skript wird nicht geöffnet");
+        assert!(file_info_now(cwd, "../draussen.pdf").is_err());
+        assert!(file_info_now(cwd, "fehlt.pdf").is_err());
+        assert!(file_info_now(cwd, ".").is_err(), "ein Ordner ist keine Datei");
         std::fs::remove_dir_all(&root).ok();
     }
 

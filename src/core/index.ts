@@ -50,6 +50,7 @@ export {
 export {
   applyPlan,
   planOf,
+  producedFiles,
   visible,
   type Plan,
   type PlannedEdit,
@@ -96,6 +97,7 @@ export {
   type DoctorCheck,
   type DoctorReport,
   type EnvSpec,
+  type FileInfo,
   type GatewayModel,
   type GatewayReport,
   type ModelInfo,

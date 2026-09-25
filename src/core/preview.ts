@@ -107,6 +107,24 @@ export function planOf(rawInput: unknown): Plan {
   return { kind: "other", args: a };
 }
 
+/**
+ * Welche Dateien ein fertiges Werkzeug hinterlassen hat — für die Dateikarte.
+ * Leer, solange es läuft oder wenn es scheiterte.
+ */
+export function producedFiles(rawInput: unknown, status: string): string[] {
+  if (status !== "completed") return [];
+  const plan = planOf(rawInput);
+  switch (plan.kind) {
+    case "document":
+    case "sheets":
+      return [plan.path];
+    case "files":
+      return plan.files.map((f) => f.path);
+    default:
+      return [];
+  }
+}
+
 export interface Applied {
   text: string;
   /** Ersetzungen, deren alter Text nicht gefunden wurde — das Werkzeug wird scheitern. */

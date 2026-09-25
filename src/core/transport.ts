@@ -9,7 +9,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
 
 /**
@@ -129,6 +129,17 @@ export interface DocumentsStatus {
   problem: string | null;
 }
 
+/** Eine Datei im Projekt, die ein Werkzeug erzeugt oder geändert hat. */
+export interface FileInfo {
+  path: string;
+  name: string;
+  size: number;
+  /** Sekunden seit Epoche. */
+  modified: number;
+  /** „Öffnen“ ist erlaubt (Dokument, Text, Bild — nichts Ausführbares). */
+  openable: boolean;
+}
+
 /** Eine angehängte Textdatei. Der Inhalt geht als eingebettete Ressource mit. */
 export interface FileAttachment {
   name: string;
@@ -213,6 +224,14 @@ export interface Transport {
   /** Dokumenten-Werkzeuge für jichi: Stand abfragen, ein- oder ausschalten. */
   documentsStatus(): Promise<DocumentsStatus>;
   documentsSet(enable: boolean): Promise<DocumentsStatus>;
+
+  // ── Erzeugte Dateien ───────────────────────────────────────────────────────
+  fileInfo(cwd: string, path: string): Promise<FileInfo>;
+  openFile(cwd: string, path: string): Promise<void>;
+  revealFile(cwd: string, path: string): Promise<void>;
+  /** Speichern-Dialog des Systems. `null`, wenn abgebrochen wurde. */
+  pickSaveLocation(defaultName: string): Promise<string | null>;
+  saveFileCopy(cwd: string, path: string, dest: string): Promise<void>;
 }
 
 interface LineEvent {
@@ -291,6 +310,14 @@ export const tauriTransport: Transport = {
 
   readAttachment: (path) => invoke<FileAttachment>("read_attachment", { path }).catch(fail),
   documentsStatus: () => invoke<DocumentsStatus>("documents_status").catch(fail),
+  fileInfo: (cwd, path) => invoke<FileInfo>("file_info", { cwd, path }).catch(fail),
+  openFile: (cwd, path) => invoke<void>("open_file", { cwd, path }).catch(fail),
+  revealFile: (cwd, path) => invoke<void>("reveal_file", { cwd, path }).catch(fail),
+  saveFileCopy: (cwd, path, dest) => invoke<void>("save_file_copy", { cwd, path, dest }).catch(fail),
+  async pickSaveLocation(defaultName) {
+    const picked = await save({ defaultPath: defaultName, title: "Kopie speichern" }).catch(fail);
+    return typeof picked === "string" ? picked : null;
+  },
   documentsSet: (enable) => invoke<DocumentsStatus>("documents_set", { enable }).catch(fail),
 
   async openUrl(url) {

@@ -47,6 +47,7 @@ import {
   formatArgs,
   parseArgs,
   permissionTone,
+  producedFiles,
   readPreferences,
   relativeTime,
   shortPath,
@@ -65,6 +66,7 @@ import {
   type ToolItem,
   type TranscriptItem,
 } from "./core/index.ts";
+import { Dateikarte } from "./ui/Dateikarte.tsx";
 import { Eingabe } from "./ui/Eingabe.tsx";
 import { Marke } from "./ui/Marke.tsx";
 import { Markdown } from "./ui/Markdown.tsx";
@@ -620,6 +622,14 @@ function Verlauf({ snap }: { snap: Snapshot }) {
 
   const t = snap.transcript;
   const laeuft = snap.status === "busy" || snap.status === "starting" || snap.status === "cancelling";
+  // Je Datei nur eine Karte: unter dem letzten Werkzeug, das sie geschrieben hat.
+  const dateien = useMemo(() => {
+    const letzte = new Map<string, string>();
+    for (const e of t) {
+      if (e.kind === "tool") for (const f of producedFiles(e.rawInput, e.status)) letzte.set(f, e.id);
+    }
+    return letzte;
+  }, [t]);
   return (
     <div className="verlauf" ref={box} onScroll={beobachten}>
       <div className="spalte">
@@ -634,6 +644,10 @@ function Verlauf({ snap }: { snap: Snapshot }) {
           return (
             <div key={e.id}>
               <Eintrag eintrag={e} snap={snap} />
+              {e.kind === "tool" &&
+                producedFiles(e.rawInput, e.status)
+                  .filter((f) => dateien.get(f) === e.id)
+                  .map((f) => <Dateikarte key={f} path={f} version={`${e.id}:${e.status}`} />)}
               {ende && e.kind === "message" && (
                 <Aktionen text={e.text} frage={frage} at={e.at} snap={snap} />
               )}

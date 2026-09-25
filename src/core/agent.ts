@@ -45,6 +45,7 @@ import {
   type DoctorReport,
   type EnvSpec,
   type FileAttachment,
+  type FileInfo,
   type TermExit,
   type Transport,
 } from "./transport.ts";
@@ -251,6 +252,34 @@ export class Agent {
     const cwd = this.#snapshot.cwd ?? this.#config?.cwd;
     if (!cwd) throw new Error("Kein Projekt geöffnet.");
     return this.#transport.readWorkspaceFile(cwd, path);
+  }
+
+  // ── Erzeugte Dateien ───────────────────────────────────────────────────────
+
+  #projekt(): string {
+    const cwd = this.#snapshot.cwd ?? this.#config?.cwd;
+    if (!cwd) throw new Error("Kein Projekt geöffnet.");
+    return cwd;
+  }
+
+  fileInfo(path: string): Promise<FileInfo> {
+    return this.#transport.fileInfo(this.#projekt(), path);
+  }
+
+  openFile(path: string): Promise<void> {
+    return this.#transport.openFile(this.#projekt(), path);
+  }
+
+  revealFile(path: string): Promise<void> {
+    return this.#transport.revealFile(this.#projekt(), path);
+  }
+
+  /** Eine Kopie an einen Ort, den der Benutzer im Speichern-Dialog wählt. `false`: abgebrochen. */
+  async saveFileAs(path: string, name: string): Promise<boolean> {
+    const dest = await this.#transport.pickSaveLocation(name);
+    if (!dest) return false;
+    await this.#transport.saveFileCopy(this.#projekt(), path, dest);
+    return true;
   }
 
   /** Eine Textdatei für den nächsten Zug wählen. `null`, wenn abgebrochen wurde. */

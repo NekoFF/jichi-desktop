@@ -14,7 +14,7 @@
 
 import { Agent } from "./agent.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
-import { applyPlan, planOf, visible } from "./preview.ts";
+import { applyPlan, planOf, producedFiles, visible } from "./preview.ts";
 import type {
   ConfigReport,
   DoctorReport,
@@ -208,6 +208,22 @@ class FakeAgent implements Transport {
   async documentsSet(enable: boolean) {
     this.dokumente = { enabled: enable, reachable: enable, problem: null };
     return { ...this.dokumente };
+  }
+  geoeffnet: string[] = [];
+  gespeichert: Array<[string, string]> = [];
+  async fileInfo(_cwd: string, path: string) {
+    return { path: `/tmp/werkstatt/${path}`, name: path.split("/").pop() ?? path, size: 2048, modified: 1, openable: path.endsWith(".pdf") };
+  }
+  async openFile(_cwd: string, path: string) {
+    this.geoeffnet.push(path);
+  }
+  async revealFile() {}
+  speicherOrt: string | null = "/Users/x/Downloads/bericht.pdf";
+  async pickSaveLocation() {
+    return this.speicherOrt;
+  }
+  async saveFileCopy(_cwd: string, path: string, dest: string) {
+    this.gespeichert.push([path, dest]);
   }
   async readAttachment(path: string) {
     return { name: path.split("/").pop() ?? path, path, text: "Inhalt der Datei" };
@@ -871,6 +887,20 @@ await laeuft;
 check("Dokumente an: Neustart mit demselben Chat",
   befehl.getSnapshot().documents?.enabled === true && term.spawns.length === vorDok + 1 &&
     befehl.getSnapshot().sessionId === chatDok);
+
+// Die Dateikarte: was ein fertiges Werkzeug erzeugt hat.
+check("ein fertiges create_pdf hinterlässt seine Datei",
+  JSON.stringify(producedFiles({ path: "bericht.pdf", markdown: "# x" }, "completed")) === JSON.stringify(["bericht.pdf"]));
+check("ein laufendes oder gescheitertes nicht",
+  producedFiles({ path: "bericht.pdf", markdown: "# x" }, "in_progress").length === 0 &&
+    producedFiles({ path: "bericht.pdf", markdown: "# x" }, "failed").length === 0);
+check("ein Befehl hinterlässt keine Datei", producedFiles({ command: "ls" }, "completed").length === 0);
+await befehl.openFile("bericht.pdf");
+check("Öffnen geht an das System", term.geoeffnet[0] === "bericht.pdf");
+check("Speichern unter kopiert an den gewählten Ort",
+  (await befehl.saveFileAs("bericht.pdf", "bericht.pdf")) && term.gespeichert[0]?.[1] === "/Users/x/Downloads/bericht.pdf");
+term.speicherOrt = null;
+check("ein abgebrochener Dialog kopiert nichts", !(await befehl.saveFileAs("bericht.pdf", "bericht.pdf")) && term.gespeichert.length === 1);
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");
