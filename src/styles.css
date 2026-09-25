@@ -67,8 +67,9 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 
 /* Das neue Layout: links ein eigenständiges weißes Blatt, rechts die ruhige,
    leicht graue Arbeitsfläche. Das klassische Layout oben bleibt unverändert. */
+/* Dieselbe Breite wie Klassisch (--seite, 240px): das Layout ist eine Frage
+   des Aussehens, nicht des Platzes. */
 .app.layout-floating {
-  --seite: clamp(260px, 22vw, 320px);
   gap: 8px;
   padding: 8px;
   background: var(--color-surface-container-low);
