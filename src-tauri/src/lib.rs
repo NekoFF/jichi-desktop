@@ -32,9 +32,14 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod artefakt;
+mod browser;
 mod documents;
 mod gateway;
+mod git;
 mod mcp_dokumente;
+mod projekt;
+mod pty;
 mod terminal;
 
 // ── Zustand ──────────────────────────────────────────────────────────────────
@@ -81,7 +86,7 @@ fn home() -> Option<PathBuf> {
 
 /// `~` und `~/…` auflösen. Ein Kindprozess bekommt keine Shell, die das für uns
 /// tut, und ein Pfad aus einem Eingabefeld enthält sehr wahrscheinlich eine Tilde.
-fn expand_tilde(input: &str) -> PathBuf {
+pub(crate) fn expand_tilde(input: &str) -> PathBuf {
     let trimmed = input.trim();
     if trimmed == "~" {
         return home().unwrap_or_else(|| PathBuf::from(trimmed));
@@ -1670,6 +1675,110 @@ async fn acp_stop(app: AppHandle) -> Result<(), String> {
     blocking(move || stop_inner(app.state::<Acp>().inner())).await
 }
 
+// ── Seitenleiste ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+async fn list_dir(cwd: String, path: String) -> Result<projekt::Liste, String> {
+    blocking(move || projekt::list_dir(&cwd, &path)).await?
+}
+
+#[tauri::command]
+async fn read_text(cwd: String, path: String) -> Result<projekt::Text, String> {
+    blocking(move || projekt::read_text(&cwd, &path)).await?
+}
+
+#[tauri::command]
+async fn write_text(cwd: String, path: String, text: String, expected_modified: Option<u64>) -> Result<u64, String> {
+    blocking(move || projekt::write_text(&cwd, &path, &text, expected_modified.map(u128::from)).map(|m| m as u64)).await?
+}
+
+#[tauri::command]
+async fn read_sheets(cwd: String, path: String) -> Result<Vec<projekt::Blatt>, String> {
+    blocking(move || projekt::read_sheets(&cwd, &path)).await?
+}
+
+/// Ein Dokument (Word, PowerPoint, OpenDocument) als Markdown für die Vorschau.
+#[tauri::command]
+async fn read_document_preview(cwd: String, path: String) -> Result<String, String> {
+    blocking(move || {
+        let root = projekt::root_of(&cwd)?;
+        let file = projekt::inside(&root, &path)?;
+        documents::read(&file, &documents::Auswahl::default())
+    })
+    .await?
+}
+
+/// Den Projektordner für das `asset:`-Protokoll freigeben — damit Bilder, PDFs
+/// und HTML aus dem Projekt in der Seitenleiste angezeigt werden können. Nur
+/// dieser Ordner, und nur lesend.
+#[tauri::command]
+fn allow_project_assets(app: AppHandle, cwd: String) -> Result<(), String> {
+    let root = projekt::root_of(&cwd)?;
+    app.asset_protocol_scope()
+        .allow_directory(&root, true)
+        .map_err(|e| format!("Freigabe fehlgeschlagen: {e}"))
+}
+
+#[tauri::command]
+fn artifact_put(app: AppHandle, id: String, lang: String, title: String, code: String) -> Result<(), String> {
+    app.state::<artefakt::Artefakte>().put(&id, &lang, &title, &code)
+}
+
+#[tauri::command]
+fn browser_open(app: AppHandle, id: String, url: String, x: f64, y: f64, w: f64, h: f64) -> Result<String, String> {
+    browser::open(&app, &id, &url, x, y, w, h)
+}
+
+#[tauri::command]
+fn browser_bounds(app: AppHandle, id: String, x: f64, y: f64, w: f64, h: f64, visible: bool) -> Result<(), String> {
+    browser::bounds(&app, &id, x, y, w, h, visible)
+}
+
+#[tauri::command]
+fn browser_navigate(app: AppHandle, id: String, url: String) -> Result<String, String> {
+    browser::navigate(&app, &id, &url)
+}
+
+#[tauri::command]
+fn browser_go(app: AppHandle, id: String, wohin: String) -> Result<(), String> {
+    browser::go(&app, &id, &wohin)
+}
+
+#[tauri::command]
+fn browser_close(app: AppHandle, id: String) {
+    browser::close(&app, &id)
+}
+
+#[tauri::command]
+fn pty_open(app: AppHandle, cwd: String, cols: u16, rows: u16) -> Result<u32, String> {
+    app.state::<pty::Ptys>().open(&app, &cwd, cols, rows, &child_path())
+}
+
+#[tauri::command]
+fn pty_write(app: AppHandle, id: u32, data: String) -> Result<(), String> {
+    app.state::<pty::Ptys>().write(id, &data)
+}
+
+#[tauri::command]
+fn pty_resize(app: AppHandle, id: u32, cols: u16, rows: u16) -> Result<(), String> {
+    app.state::<pty::Ptys>().resize(id, cols, rows)
+}
+
+#[tauri::command]
+async fn pty_close(app: AppHandle, id: u32) -> Result<(), String> {
+    blocking(move || app.state::<pty::Ptys>().close(id)).await
+}
+
+#[tauri::command]
+async fn git_changes(cwd: String) -> Result<git::Stand, String> {
+    blocking(move || git::stand(&cwd)).await?
+}
+
+#[tauri::command]
+async fn git_file_diff(cwd: String, path: String) -> Result<git::Vergleich, String> {
+    blocking(move || git::vergleich(&cwd, &path)).await?
+}
+
 #[tauri::command]
 async fn file_info(cwd: String, path: String) -> Result<FileInfo, String> {
     blocking(move || file_info_now(&cwd, &path)).await?
@@ -1800,6 +1909,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Acp::default())
         .manage(terminal::Terminals::default())
+        .manage(pty::Ptys::default())
+        .manage(artefakt::Artefakte::default())
+        .register_uri_scheme_protocol("artefakt", |ctx, req| {
+            ctx.app_handle().state::<artefakt::Artefakte>().antwort(&req)
+        })
+        .setup(|app| {
+            browser::remember(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             default_launch,
             probe,
@@ -1820,6 +1938,24 @@ pub fn run() {
             documents_status,
             documents_set,
             file_info,
+            list_dir,
+            git_changes,
+            git_file_diff,
+            artifact_put,
+            browser_open,
+            browser_bounds,
+            browser_navigate,
+            browser_go,
+            browser_close,
+            pty_open,
+            pty_write,
+            pty_resize,
+            pty_close,
+            read_text,
+            write_text,
+            read_sheets,
+            read_document_preview,
+            allow_project_assets,
             open_file,
             reveal_file,
             save_file_copy,
@@ -1835,6 +1971,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.app_handle().state::<terminal::Terminals>().kill_all();
+                window.app_handle().state::<pty::Ptys>().close_all();
                 stop_inner(window.app_handle().state::<Acp>().inner());
             }
         })

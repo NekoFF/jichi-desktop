@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Download, ExternalLink, File, FileImage, FileSpreadsheet, FileText, FolderSearch } from "lucide-react";
 
 import { agent, type FileInfo } from "../core/index.ts";
+import { panel } from "./panel/store.ts";
 
 const ART: Record<string, string> = {
   pdf: "PDF", docx: "Word", doc: "Word", xlsx: "Excel", xls: "Excel", ods: "Tabelle", odt: "Text",
@@ -72,9 +73,8 @@ export function Dateikarte({ path, version }: { path: string; version: string })
       <button
         type="button"
         className="dateikarte-haupt"
-        disabled={!info.openable}
-        onClick={() => void tun(() => agent.openFile(path))}
-        title={info.openable ? `${info.path} öffnen` : info.path}
+        onClick={() => panel.datei(path)}
+        title={`${info.path} in der Seitenleiste ansehen`}
       >
         <span className={`dateikarte-symbol art-${endung(info.name)}`}>
           <Symbol name={info.name} />
@@ -89,7 +89,7 @@ export function Dateikarte({ path, version }: { path: string; version: string })
       </button>
       <div className="dateikarte-aktionen">
         {info.openable && (
-          <button type="button" onClick={() => void tun(() => agent.openFile(path))} title="Öffnen" aria-label="Öffnen">
+          <button type="button" onClick={() => void tun(() => agent.openFile(path))} title="Mit dem Standardprogramm öffnen" aria-label="Extern öffnen">
             <ExternalLink size={15} />
           </button>
         )}

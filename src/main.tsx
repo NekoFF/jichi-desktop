@@ -25,7 +25,12 @@ import {
   Check,
   ChevronDown,
   Copy,
+  FolderTree,
+  GitCompare,
+  Globe,
+  PanelRight,
   RotateCcw,
+  SquareTerminal,
   ChevronRight,
   FileText,
   FolderOpen,
@@ -67,6 +72,8 @@ import {
   type TranscriptItem,
 } from "./core/index.ts";
 import { Dateikarte } from "./ui/Dateikarte.tsx";
+import { Panel, usePanel } from "./ui/panel/Panel.tsx";
+import { panel } from "./ui/panel/store.ts";
 import { Eingabe } from "./ui/Eingabe.tsx";
 import { Marke } from "./ui/Marke.tsx";
 import { Markdown } from "./ui/Markdown.tsx";
@@ -79,6 +86,8 @@ const useAgent = (): Snapshot =>
 const IS_MAC = /Mac/i.test(navigator.userAgent);
 /** Die Tastenkombination so, wie sie auf dieser Plattform heisst. */
 const kurz = (taste: string) => (IS_MAC ? `⌘${taste}` : `Strg+${taste}`);
+
+const kurzTaste = (t: string) => (IS_MAC ? `⌘${t}` : `Strg+${t.replace("⇧", "Umschalt+")}`);
 
 const nachricht = (ursache: unknown) =>
   ursache instanceof Error ? ursache.message : String(ursache);
@@ -279,6 +288,7 @@ function Seitenleiste({
 
   useEffect(() => {
     if (zuLoeschen) abbrechen.current?.focus();
+    panel.setOverlay(!!zuLoeschen);
   }, [zuLoeschen]);
 
   async function loeschen() {
@@ -442,6 +452,18 @@ function Werkzeug({ eintrag, snap }: { eintrag: ToolItem; snap: Snapshot }) {
       </button>
       {aufgeklappt && (
         <div className="werkzeug-inhalt">
+          <div className="werkzeug-spruenge">
+            {terminal && eintrag.terminalId && (
+              <button type="button" className="knopf-klein" onClick={() => panel.terminal(eintrag.terminalId)}>
+                <SquareTerminal size={12} /> Im Terminal ansehen
+              </button>
+            )}
+            {(eintrag.toolKind === "edit" || eintrag.toolKind === "delete" || eintrag.toolKind === "move") && eintrag.status === "completed" && (
+              <button type="button" className="knopf-klein" onClick={() => panel.aenderungen()}>
+                <GitCompare size={12} /> Änderungen ansehen
+              </button>
+            )}
+          </div>
           {hatArgumente && (
             <Vorschau rawInput={eintrag.rawInput} cacheKey={eintrag.toolCallId} live={laeuft} />
           )}
@@ -1026,11 +1048,19 @@ function App() {
 
   useEffect(() => {
     function tasten(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "n") {
         e.preventDefault();
         if (!agent.getSnapshot().canSwitch) return;
         void agent.newSession().catch(() => {});
       }
+      // Seitenleiste — dieselben Tasten wie in Claude Code.
+      const k = e.key.toLowerCase();
+      if (mod && e.shiftKey && k === "e") { e.preventDefault(); panel.dateien(); }
+      if (mod && e.shiftKey && k === "d") { e.preventDefault(); panel.aenderungen(); }
+      if (mod && e.shiftKey && k === "b") { e.preventDefault(); panel.browser(); }
+      if (e.ctrlKey && (e.key === "`" || e.code === "Backquote")) { e.preventDefault(); panel.terminal(); }
+      if (mod && e.key === "\\") { e.preventDefault(); panel.closeActive(); }
       if (e.key === "Escape") setEinstellungen(false);
     }
     window.addEventListener("keydown", tasten);
@@ -1043,6 +1073,12 @@ function App() {
     if (snap.needsSetup) setEinstellungen(false);
   }, [snap.needsSetup]);
 
+  // Ein Dialog über allem: der native Browser der Seitenleiste muss weichen.
+  useEffect(() => {
+    panel.setOverlay(einstellungen || snap.needsSetup);
+  }, [einstellungen, snap.needsSetup]);
+  const p = usePanel();
+
   const punkt =
     snap.status === "ready"
       ? "bereit"
@@ -1054,7 +1090,12 @@ function App() {
 
   return (
     <>
-      <div className={`app layout-${prefs.layout}`} inert={snap.needsSetup} aria-hidden={snap.needsSetup}>
+      <div
+        className={`app layout-${prefs.layout}${p.open ? " mit-panel" : ""}${p.open && p.maximized ? " panel-gross" : ""}`}
+        style={{ ["--panel-breite" as string]: `${p.width}px` }}
+        inert={snap.needsSetup}
+        aria-hidden={snap.needsSetup}
+      >
       <Seitenleiste snap={snap} oeffneEinstellungen={() => setEinstellungen(true)} />
 
       <main className="haupt">
@@ -1074,6 +1115,13 @@ function App() {
               <FolderOpen size={13} />
               <span className="pfad">{snap.hasProject ? shortPath(snap.cwd, 34) : "Projekt öffnen"}</span>
             </button>
+            <div className="kopf-ansichten" role="group" aria-label="Seitenleiste">
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.dateien()} aria-label="Dateien" title={`Dateien (${kurzTaste("⇧E")})`}><FolderTree size={14} /></button>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.aenderungen()} aria-label="Änderungen" title={`Änderungen (${kurzTaste("⇧D")})`}><GitCompare size={14} /></button>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.terminal()} aria-label="Terminal" title="Terminal (Strg+`)"><SquareTerminal size={14} /></button>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.browser()} aria-label="Browser" title={`Browser (${kurzTaste("⇧B")})`}><Globe size={14} /></button>
+              <button className={`knopf-klein knopf-symbol${p.open ? " an" : ""}`} onClick={() => panel.toggle()} aria-label="Seitenleiste ein/aus" aria-pressed={p.open} title="Seitenleiste"><PanelRight size={14} /></button>
+            </div>
             <button
               className="knopf-klein knopf-symbol"
               onClick={() =>
@@ -1097,6 +1145,8 @@ function App() {
 
         <Eingabe snap={snap} />
       </main>
+
+      <Panel snap={snap} />
 
       {einstellungen && !snap.needsSetup && (
         <Einstellungen

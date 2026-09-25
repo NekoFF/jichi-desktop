@@ -7,7 +7,7 @@
  * ohne installiertes jichi.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
@@ -140,6 +140,73 @@ export interface FileInfo {
   openable: boolean;
 }
 
+/** Ein Eintrag im Projektbaum. */
+export interface DirEntry {
+  name: string;
+  /** Relativ zum Projekt, mit `/`. */
+  path: string;
+  dir: boolean;
+  size: number;
+  /** node_modules & Co.: nicht von selbst aufklappen. */
+  heavy: boolean;
+}
+
+export interface DirListing {
+  entries: DirEntry[];
+  truncated: boolean;
+}
+
+/** Eine Textdatei zum Anzeigen und Bearbeiten. */
+export interface TextFile {
+  path: string;
+  text: string;
+  size: number;
+  /** Millisekunden — beim Speichern zurückgeben, damit ein Konflikt auffällt. */
+  modified: number;
+  binary: boolean;
+}
+
+export interface SheetPreview {
+  name: string;
+  rows: string[][];
+  truncated: boolean;
+}
+
+/** Eine Datei mit Änderungen gegenüber dem letzten Commit. */
+export interface GitChange {
+  path: string;
+  /** M geändert, A neu, D gelöscht, R umbenannt, ? nicht in git */
+  status: "M" | "A" | "D" | "R" | "?";
+  additions: number;
+  deletions: number;
+}
+
+export interface GitState {
+  repo: boolean;
+  branch: string | null;
+  files: GitChange[];
+}
+
+export interface GitFileDiff {
+  before: string | null;
+  after: string | null;
+  binary: boolean;
+}
+
+export interface BrowserState {
+  id: string;
+  url?: string | null;
+  title?: string | null;
+  loading?: boolean | null;
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Eine angehängte Textdatei. Der Inhalt geht als eingebettete Ressource mit. */
 export interface FileAttachment {
   name: string;
@@ -232,6 +299,42 @@ export interface Transport {
   /** Speichern-Dialog des Systems. `null`, wenn abgebrochen wurde. */
   pickSaveLocation(defaultName: string): Promise<string | null>;
   saveFileCopy(cwd: string, path: string, dest: string): Promise<void>;
+
+  // ── Seitenleiste: der Projektordner ────────────────────────────────────────
+  listDir(cwd: string, path: string): Promise<DirListing>;
+  readText(cwd: string, path: string): Promise<TextFile>;
+  /** Liefert die neue Änderungszeit. Scheitert, wenn die Datei inzwischen geändert wurde. */
+  writeText(cwd: string, path: string, text: string, expectedModified: number | null): Promise<number>;
+  readSheets(cwd: string, path: string): Promise<SheetPreview[]>;
+  readDocumentPreview(cwd: string, path: string): Promise<string>;
+  /** Den Projektordner für Bilder/PDF/HTML in der Vorschau freigeben (nur lesend). */
+  allowProjectAssets(cwd: string): Promise<void>;
+  /** Adresse, unter der die Vorschau eine Projektdatei laden kann. */
+  assetUrl(absolutePath: string): string;
+
+  // ── Änderungen (git) ───────────────────────────────────────────────────────
+  gitChanges(cwd: string): Promise<GitState>;
+  gitFileDiff(cwd: string, path: string): Promise<GitFileDiff>;
+
+  // ── Terminal (PTY) ─────────────────────────────────────────────────────────
+  ptyOpen(cwd: string, cols: number, rows: number): Promise<number>;
+  ptyWrite(id: number, data: string): Promise<void>;
+  ptyResize(id: number, cols: number, rows: number): Promise<void>;
+  ptyClose(id: number): Promise<void>;
+  onPty(output: (id: number, data: string) => void, exit: (id: number) => void): Promise<() => void>;
+
+  // ── Browser ────────────────────────────────────────────────────────────────
+  browserOpen(id: string, url: string, r: Rect): Promise<string>;
+  browserBounds(id: string, r: Rect, visible: boolean): Promise<void>;
+  browserNavigate(id: string, url: string): Promise<string>;
+  browserGo(id: string, wohin: "back" | "forward" | "reload"): Promise<void>;
+  browserClose(id: string): Promise<void>;
+  onBrowser(f: (s: BrowserState) => void): Promise<() => void>;
+
+  // ── Artefakte ──────────────────────────────────────────────────────────────
+  artifactPut(id: string, lang: string, title: string, code: string): Promise<void>;
+  /** Adresse eines abgelegten Artefakts für das iframe. */
+  artifactUrl(id: string): string;
 }
 
 interface LineEvent {
@@ -311,6 +414,45 @@ export const tauriTransport: Transport = {
   readAttachment: (path) => invoke<FileAttachment>("read_attachment", { path }).catch(fail),
   documentsStatus: () => invoke<DocumentsStatus>("documents_status").catch(fail),
   fileInfo: (cwd, path) => invoke<FileInfo>("file_info", { cwd, path }).catch(fail),
+  listDir: (cwd, path) => invoke<DirListing>("list_dir", { cwd, path }).catch(fail),
+  readText: (cwd, path) => invoke<TextFile>("read_text", { cwd, path }).catch(fail),
+  writeText: (cwd, path, text, expectedModified) =>
+    invoke<number>("write_text", { cwd, path, text, expectedModified }).catch(fail),
+  readSheets: (cwd, path) => invoke<SheetPreview[]>("read_sheets", { cwd, path }).catch(fail),
+  readDocumentPreview: (cwd, path) => invoke<string>("read_document_preview", { cwd, path }).catch(fail),
+  allowProjectAssets: (cwd) => invoke<void>("allow_project_assets", { cwd }).catch(fail),
+  assetUrl: (p) => convertFileSrc(p),
+
+  gitChanges: (cwd) => invoke<GitState>("git_changes", { cwd }).catch(fail),
+  gitFileDiff: (cwd, path) => invoke<GitFileDiff>("git_file_diff", { cwd, path }).catch(fail),
+
+  ptyOpen: (cwd, cols, rows) => invoke<number>("pty_open", { cwd, cols, rows }).catch(fail),
+  ptyWrite: (id, data) => invoke<void>("pty_write", { id, data }).catch(fail),
+  ptyResize: (id, cols, rows) => invoke<void>("pty_resize", { id, cols, rows }).catch(fail),
+  ptyClose: (id) => invoke<void>("pty_close", { id }).catch(fail),
+  async onPty(output, exit) {
+    const offs = await Promise.all([
+      listen<{ id: number; data: string }>("pty-output", (e) => output(e.payload.id, e.payload.data)),
+      listen<{ id: number }>("pty-exit", (e) => exit(e.payload.id)),
+    ]);
+    return () => offs.forEach((o) => o());
+  },
+
+  browserOpen: (id, url, r) => invoke<string>("browser_open", { id, url, ...r }).catch(fail),
+  browserBounds: (id, r, visible) => invoke<void>("browser_bounds", { id, ...r, visible }).catch(fail),
+  browserNavigate: (id, url) => invoke<string>("browser_navigate", { id, url }).catch(fail),
+  browserGo: (id, wohin) => invoke<void>("browser_go", { id, wohin }).catch(fail),
+  browserClose: (id) => invoke<void>("browser_close", { id }).catch(fail),
+  async onBrowser(f) {
+    return listen<BrowserState>("browser-stand", (e) => f(e.payload));
+  },
+
+  artifactPut: (id, lang, title, code) => invoke<void>("artifact_put", { id, lang, title, code }).catch(fail),
+  // Unter Windows heisst ein eigenes Schema http://<name>.localhost.
+  artifactUrl: (id) =>
+    /Windows/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent)
+      ? `http://artefakt.localhost/${id}`
+      : `artefakt://localhost/${id}`,
   openFile: (cwd, path) => invoke<void>("open_file", { cwd, path }).catch(fail),
   revealFile: (cwd, path) => invoke<void>("reveal_file", { cwd, path }).catch(fail),
   saveFileCopy: (cwd, path, dest) => invoke<void>("save_file_copy", { cwd, path, dest }).catch(fail),

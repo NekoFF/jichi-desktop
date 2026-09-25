@@ -45,7 +45,14 @@ import {
   type DoctorReport,
   type EnvSpec,
   type FileAttachment,
+  type BrowserState,
+  type DirListing,
+  type GitFileDiff,
+  type GitState,
+  type Rect,
   type FileInfo,
+  type SheetPreview,
+  type TextFile,
   type TermExit,
   type Transport,
 } from "./transport.ts";
@@ -274,12 +281,98 @@ export class Agent {
     return this.#transport.revealFile(this.#projekt(), path);
   }
 
+  // ── Seitenleiste: der Projektordner ────────────────────────────────────────
+
+  listDir(path = ""): Promise<DirListing> {
+    return this.#transport.listDir(this.#projekt(), path);
+  }
+
+  readText(path: string): Promise<TextFile> {
+    return this.#transport.readText(this.#projekt(), path);
+  }
+
+  writeText(path: string, text: string, expectedModified: number | null): Promise<number> {
+    return this.#transport.writeText(this.#projekt(), path, text, expectedModified);
+  }
+
+  readSheets(path: string): Promise<SheetPreview[]> {
+    return this.#transport.readSheets(this.#projekt(), path);
+  }
+
+  readDocumentPreview(path: string): Promise<string> {
+    return this.#transport.readDocumentPreview(this.#projekt(), path);
+  }
+
+  // ── Änderungen, Terminal, Browser, Artefakte ──────────────────────────────
+
+  gitChanges(): Promise<GitState> {
+    return this.#transport.gitChanges(this.#projekt());
+  }
+
+  gitFileDiff(path: string): Promise<GitFileDiff> {
+    return this.#transport.gitFileDiff(this.#projekt(), path);
+  }
+
+  /** Ein Terminal im Projektordner. */
+  ptyOpen(cols: number, rows: number): Promise<number> {
+    return this.#transport.ptyOpen(this.#projekt(), cols, rows);
+  }
+  ptyWrite(id: number, data: string): Promise<void> {
+    return this.#transport.ptyWrite(id, data);
+  }
+  ptyResize(id: number, cols: number, rows: number): Promise<void> {
+    return this.#transport.ptyResize(id, cols, rows);
+  }
+  ptyClose(id: number): Promise<void> {
+    return this.#transport.ptyClose(id);
+  }
+  onPty(output: (id: number, data: string) => void, exit: (id: number) => void): Promise<() => void> {
+    return this.#transport.onPty(output, exit);
+  }
+
+  browserOpen(id: string, url: string, r: Rect): Promise<string> {
+    return this.#transport.browserOpen(id, url, r);
+  }
+  browserBounds(id: string, r: Rect, visible: boolean): Promise<void> {
+    return this.#transport.browserBounds(id, r, visible);
+  }
+  browserNavigate(id: string, url: string): Promise<string> {
+    return this.#transport.browserNavigate(id, url);
+  }
+  browserGo(id: string, wohin: "back" | "forward" | "reload"): Promise<void> {
+    return this.#transport.browserGo(id, wohin);
+  }
+  browserClose(id: string): Promise<void> {
+    return this.#transport.browserClose(id);
+  }
+  onBrowser(f: (s: BrowserState) => void): Promise<() => void> {
+    return this.#transport.onBrowser(f);
+  }
+
+  /** Ein Artefakt ablegen; liefert die Adresse für das iframe. */
+  async artifactUrl(id: string, lang: string, title: string, code: string): Promise<string> {
+    await this.#transport.artifactPut(id, lang, title, code);
+    return this.#transport.artifactUrl(id);
+  }
+
+  /** Adresse einer Projektdatei für die Vorschau (Bild, PDF, HTML). */
+  async assetUrl(path: string): Promise<string> {
+    const info = await this.fileInfo(path);
+    return this.#transport.assetUrl(info.path);
+  }
+
   /** Eine Kopie an einen Ort, den der Benutzer im Speichern-Dialog wählt. `false`: abgebrochen. */
   async saveFileAs(path: string, name: string): Promise<boolean> {
     const dest = await this.#transport.pickSaveLocation(name);
     if (!dest) return false;
     await this.#transport.saveFileCopy(this.#projekt(), path, dest);
     return true;
+  }
+
+  /** Eine Projektdatei als Anhang für den nächsten Zug (Seitenleiste → „Als Kontext“). */
+  async attachmentOf(path: string): Promise<FileAttachment> {
+    const info = await this.fileInfo(path);
+    return this.#transport.readAttachment(info.path);
   }
 
   /** Eine Textdatei für den nächsten Zug wählen. `null`, wenn abgebrochen wurde. */
@@ -699,7 +792,10 @@ export class Agent {
   }
 
   #set(patch: Partial<S.Snapshot>): void {
+    const vorher = this.#snapshot.cwd;
     this.#snapshot = S.withDerived({ ...this.#snapshot, ...patch });
+    // Neuer Projektordner: für die Vorschau freigeben (Bilder, PDF, HTML).
+    if (patch.cwd && patch.cwd !== vorher) void this.#transport.allowProjectAssets(patch.cwd).catch(() => {});
     for (const listener of this.#listeners) listener();
   }
 

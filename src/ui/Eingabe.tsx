@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 
 import { agent, shortPath, type AgentMode, type Snapshot } from "../core/index.ts";
+import { zurEingabe } from "./panel/store.ts";
 import type { FileAttachment } from "../core/transport.ts";
 
 const nachricht = (ursache: unknown) => (ursache instanceof Error ? ursache.message : String(ursache));
@@ -428,6 +429,27 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       setFehler(nachricht(ursache));
     }
   }
+
+  // Aus der Seitenleiste: ein Ausschnitt oder eine Datei als Kontext.
+  useEffect(
+    () =>
+      zurEingabe.listen((e) => {
+        if ("text" in e) {
+          setText((alt) => (alt.trim() ? `${alt.trimEnd()}\n\n${e.text}` : e.text));
+          requestAnimationFrame(() => {
+            const el = feld.current;
+            el?.focus();
+            el?.setSelectionRange(el.value.length, el.value.length);
+          });
+        } else {
+          void agent.attachmentOf(e.datei).then(
+            (d) => setDateien((alt) => [...alt.filter((x) => x.path !== d.path), d]),
+            (err: Error) => setFehler(err.message),
+          );
+        }
+      }),
+    [],
+  );
 
   const leer = !text.trim() && !bilder.length && !dateien.length;
   const arbeitet = snap.canCancel;

@@ -225,6 +225,56 @@ class FakeAgent implements Transport {
   async saveFileCopy(_cwd: string, path: string, dest: string) {
     this.gespeichert.push([path, dest]);
   }
+  freigegeben: string[] = [];
+  async listDir(_cwd: string, path: string) {
+    return { entries: [{ name: "a.txt", path: path ? `${path}/a.txt` : "a.txt", dir: false, size: 3, heavy: false }], truncated: false };
+  }
+  inhalte = new Map<string, { text: string; modified: number }>([["a.txt", { text: "alt", modified: 1 }]]);
+  async readText(_cwd: string, path: string) {
+    const d = this.inhalte.get(path);
+    if (!d) throw new Error("gibt es nicht");
+    return { path, text: d.text, size: d.text.length, modified: d.modified, binary: false };
+  }
+  async writeText(_cwd: string, path: string, text: string, expected: number | null) {
+    const d = this.inhalte.get(path);
+    if (d && expected !== null && d.modified !== expected) throw new Error("inzwischen geändert");
+    const modified = (d?.modified ?? 0) + 1;
+    this.inhalte.set(path, { text, modified });
+    return modified;
+  }
+  async readSheets() {
+    return [{ name: "A", rows: [["x"]], truncated: false }];
+  }
+  async readDocumentPreview() {
+    return "# Dokument";
+  }
+  async allowProjectAssets(cwd: string) {
+    this.freigegeben.push(cwd);
+  }
+  assetUrl(p: string) {
+    return `asset://localhost${p}`;
+  }
+  async gitChanges() {
+    return { repo: true, branch: "main", files: [{ path: "a.txt", status: "M" as const, additions: 1, deletions: 0 }] };
+  }
+  async gitFileDiff() {
+    return { before: "alt\n", after: "neu\n", binary: false };
+  }
+  ptyGeschrieben: string[] = [];
+  async ptyOpen() { return 1; }
+  async ptyWrite(_id: number, d: string) { this.ptyGeschrieben.push(d); }
+  async ptyResize() {}
+  async ptyClose() {}
+  async onPty() { return () => {}; }
+  async browserOpen(_id: string, url: string) { return url; }
+  async browserBounds() {}
+  async browserNavigate(_id: string, url: string) { return url; }
+  async browserGo() {}
+  async browserClose() {}
+  async onBrowser() { return () => {}; }
+  artefakte = new Map<string, string>();
+  async artifactPut(id: string, _lang: string, _t: string, code: string) { this.artefakte.set(id, code); }
+  artifactUrl(id: string) { return `artefakt://localhost/${id}`; }
   async readAttachment(path: string) {
     return { name: path.split("/").pop() ?? path, path, text: "Inhalt der Datei" };
   }
@@ -901,6 +951,24 @@ check("Speichern unter kopiert an den gewählten Ort",
   (await befehl.saveFileAs("bericht.pdf", "bericht.pdf")) && term.gespeichert[0]?.[1] === "/Users/x/Downloads/bericht.pdf");
 term.speicherOrt = null;
 check("ein abgebrochener Dialog kopiert nichts", !(await befehl.saveFileAs("bericht.pdf", "bericht.pdf")) && term.gespeichert.length === 1);
+
+// Seitenleiste: Projektordner lesen und schreiben.
+check("der Projektordner wird für die Vorschau freigegeben", term.freigegeben.includes("/tmp/anders") || term.freigegeben.length > 0);
+const gelesenA = await befehl.readText("a.txt");
+check("eine Datei lässt sich lesen", gelesenA.text === "alt");
+const neuM = await befehl.writeText("a.txt", "neu", gelesenA.modified);
+check("und speichern", term.inhalte.get("a.txt")?.text === "neu" && neuM === 2);
+let konflikt = "";
+await befehl.writeText("a.txt", "meins", gelesenA.modified).catch((e: Error) => { konflikt = e.message; });
+check("ein veralteter Stand wird nicht gespeichert", konflikt.includes("inzwischen") && term.inhalte.get("a.txt")?.text === "neu");
+
+// Seitenleiste: Änderungen, Terminal, Artefakte.
+check("git-Änderungen kommen durch", (await befehl.gitChanges()).files[0]?.status === "M");
+check("ein Terminal öffnet im Projekt", (await befehl.ptyOpen(80, 24)) === 1);
+await befehl.ptyWrite(1, "ls\r");
+check("und bekommt Eingaben", term.ptyGeschrieben[0] === "ls\r");
+const artUrl = await befehl.artifactUrl("a1", "html", "Test", "<h1>x</h1>");
+check("ein Artefakt wird abgelegt und hat eine Adresse", term.artefakte.get("a1") === "<h1>x</h1>" && artUrl.endsWith("/a1"));
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");

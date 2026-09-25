@@ -238,8 +238,8 @@ keine Arbeitsgrundlage mehr.
 ## 7. Prüfen
 
 ```sh
-npm run check        # Typen + 97 Prüfungen des TS-Kerns (25.09.2026)
-npm run check:rust   # 37 aktive Rust-Tests, 2 Integrationstests ignoriert
+npm run check        # Typen + 111 Prüfungen des TS-Kerns (25.09.2026)
+npm run check:rust   # 46 aktive Rust-Tests, 2 Integrationstests ignoriert
 npm run tauri dev    # die Anwendung
 ```
 

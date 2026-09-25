@@ -76,6 +76,15 @@ stdin/stdout. Rust отвечает за процесс, файлы, секре�
 - Картинки: вставка, перетаскивание или кнопка — только если модель умеет
   читать изображения.
 - Настройки → «Verfügbare Modelle»: что доступно по ключу (только `jlu/…`).
+- **Боковая панель справа** (как Artifacts / Canvas / панели Claude Code, план и
+  решения — [SEITENPANEL.md](SEITENPANEL.md)): Dateien, Datei (код, Markdown,
+  картинки, PDF через pdf.js, Word, Excel/CSV, HTML; правка с проверкой
+  конфликта; «An jichi»; «Als Kontext»), Änderungen (git diff, комментарии к
+  строкам → jichi, «Code prüfen lassen»), Terminal (настоящий PTY + вкладки
+  команд jichi), Browser (дочерний webview, только http/https), Artefakt (HTML,
+  SVG, Mermaid, React из блоков кода; песочница `artefakt://`). Пути в ответе,
+  карточки файлов и инструментов открывают нужное окно. ⌘⇧E / ⌘⇧D / Ctrl+\` /
+  ⌘⇧B / ⌘\\.
 - **Документы.** Тот же бинарник, запущенный с `--mcp-dokumente`, — MCP-сервер
   (`src-tauri/src/mcp_dokumente.rs`, `documents.rs`): читает PDF, DOCX,
   XLSX/XLS/ODS, PPTX, ODT, CSV; создаёт DOCX, XLSX, PDF, CSV. Только внутри
@@ -217,8 +226,8 @@ Vite использует порт **1420**. Если он занят, выяс�
 используй Tauri, не одну только вкладку браузера.
 
 ```sh
-npm run check       # TypeScript + 97 проверок TS-ядра на 25.09.2026
-npm run check:rust  # 37 активных тестов Rust; ещё 2 требуют агента/сети
+npm run check       # TypeScript + 111 проверок TS-ядра на 25.09.2026
+npm run check:rust  # 46 активных тестов Rust; ещё 2 требуют агента/сети
 npm run build       # сборка фронтенда
 ```
 

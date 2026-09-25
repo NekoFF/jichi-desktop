@@ -1,0 +1,154 @@
+/**
+ * Die Seitenleiste rechts: Reiter oben, darunter das vordere Fenster.
+ *
+ * Alle Fenster bleiben eingehängt, auch die hinteren — ein Terminal verliert
+ * sonst seinen Verlauf, ein Browser seine Seite. Verborgen wird mit CSS.
+ */
+
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { FileCode2, FolderTree, GitCompare, Globe, Maximize2, Minimize2, Plus, Sparkles, SquareTerminal, X } from "lucide-react";
+
+import type { Snapshot } from "../../core/index.ts";
+import { Dateien } from "./Dateien.tsx";
+import { DateiAnsicht } from "./DateiAnsicht.tsx";
+import { MIN_WIDTH, panel, type PanelTab } from "./store.ts";
+import { Aenderungen } from "./Aenderungen.tsx";
+import { TerminalFenster } from "./Terminal.tsx";
+import { BrowserFenster } from "./Browser.tsx";
+import { ArtefaktFenster } from "./Artefakt.tsx";
+
+export const usePanel = () => useSyncExternalStore(panel.subscribe, panel.getSnapshot);
+
+function titel(t: PanelTab): { icon: ReactNode; text: string } {
+  switch (t.kind) {
+    case "dateien":
+      return { icon: <FolderTree size={13} />, text: "Dateien" };
+    case "datei":
+      return { icon: <FileCode2 size={13} />, text: t.path.split("/").pop() ?? t.path };
+    case "aenderungen":
+      return { icon: <GitCompare size={13} />, text: "Änderungen" };
+    case "terminal":
+      return { icon: <SquareTerminal size={13} />, text: t.agentTerminal ? "jichi" : "Terminal" };
+    case "browser":
+      return { icon: <Globe size={13} />, text: t.url ? hostOf(t.url) : "Browser" };
+    case "artefakt":
+      return { icon: <Sparkles size={13} />, text: t.title };
+  }
+}
+
+function hostOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.host || u.pathname.split("/").pop() || url;
+  } catch {
+    return url;
+  }
+}
+
+/** Das Menü hinter „+“: welche Fenster es gibt. */
+function NeuMenue() {
+  const [offen, setOffen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!offen) return;
+    const zu = (e: MouseEvent) => box.current && !box.current.contains(e.target as Node) && setOffen(false);
+    document.addEventListener("mousedown", zu);
+    return () => document.removeEventListener("mousedown", zu);
+  }, [offen]);
+  const kurz = /Mac/i.test(navigator.userAgent) ? "⌘" : "Strg+";
+  const punkt = (icon: ReactNode, text: string, taste: string, f: () => void) => (
+    <button type="button" className="menue-punkt" role="menuitem" onClick={() => { setOffen(false); f(); }}>
+      <span className="menue-icon">{icon}</span>
+      <span className="menue-titel">{text}</span>
+      <span className="menue-text menue-taste">{taste}</span>
+    </button>
+  );
+  return (
+    <div className="panel-neu" ref={box}>
+      <button type="button" className="panel-knopf" aria-label="Fenster öffnen" title="Fenster öffnen" onClick={() => setOffen((o) => !o)}>
+        <Plus size={14} />
+      </button>
+      {offen && (
+        <div className="menue panel-menue" role="menu">
+          {punkt(<FolderTree size={15} />, "Dateien", `${kurz}⇧E`, () => panel.dateien())}
+          {punkt(<GitCompare size={15} />, "Änderungen", `${kurz}⇧D`, () => panel.aenderungen())}
+          {punkt(<SquareTerminal size={15} />, "Terminal", "Strg+`", () => panel.terminal(undefined, true))}
+          {punkt(<Globe size={15} />, "Browser", `${kurz}⇧B`, () => panel.browser())}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Panel({ snap }: { snap: Snapshot }) {
+  const p = usePanel();
+  const [zieht, setZieht] = useState(false);
+
+  function ziehen(e: React.MouseEvent) {
+    e.preventDefault();
+    const start = e.clientX;
+    const breite = p.width;
+    setZieht(true);
+    const bewege = (m: MouseEvent) => {
+      const max = Math.max(MIN_WIDTH, window.innerWidth - 480);
+      panel.setWidth(Math.min(max, breite + (start - m.clientX)));
+    };
+    const los = () => {
+      setZieht(false);
+      window.removeEventListener("mousemove", bewege);
+      window.removeEventListener("mouseup", los);
+    };
+    window.addEventListener("mousemove", bewege);
+    window.addEventListener("mouseup", los);
+  }
+
+  if (!p.open) return null;
+
+  return (
+    <aside className={`panel${zieht ? " zieht" : ""}${p.maximized ? " gross" : ""}`} aria-label="Seitenleiste">
+      {!p.maximized && <div className="panel-griff" onMouseDown={ziehen} onDoubleClick={() => panel.setWidth(560)} title="Breite ziehen" />}
+      <div className="panel-kopf" data-tauri-drag-region>
+        <div className="panel-reiter" role="tablist">
+          {p.tabs.map((t) => {
+            const { icon, text } = titel(t);
+            const aktiv = t.id === p.active;
+            return (
+              <div key={t.id} className={`panel-tab${aktiv ? " aktiv" : ""}`} role="tab" aria-selected={aktiv}
+                onMouseDown={(e) => e.button === 1 && (e.preventDefault(), panel.close(t.id))}>
+                <button type="button" className="panel-tab-titel" onClick={() => panel.activate(t.id)} title={t.kind === "datei" ? t.path : t.kind === "browser" ? t.url : text}>
+                  {icon}
+                  <span>{text}</span>
+                </button>
+                <button type="button" className="panel-tab-zu" aria-label={`${text} schließen`} onClick={() => panel.close(t.id)}>
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <NeuMenue />
+        <button type="button" className="panel-knopf" aria-label={p.maximized ? "Verkleinern" : "Vergrößern"} title={p.maximized ? "Verkleinern" : "Vergrößern"} onClick={() => panel.toggleMaximized()}>
+          {p.maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button type="button" className="panel-knopf" aria-label="Seitenleiste schließen" title="Schließen" onClick={() => panel.hide()}>
+          <X size={14} />
+        </button>
+      </div>
+      <div className="panel-inhalt">
+        {p.tabs.map((t) => {
+          const sichtbar = t.id === p.active;
+          return (
+            <div key={t.id} className="panel-fenster" hidden={!sichtbar}>
+              {t.kind === "dateien" && <Dateien snap={snap} />}
+              {t.kind === "datei" && <DateiAnsicht path={t.path} line={t.line} sichtbar={sichtbar} />}
+              {t.kind === "aenderungen" && <Aenderungen snap={snap} sichtbar={sichtbar} />}
+              {t.kind === "terminal" && <TerminalFenster tab={t} snap={snap} sichtbar={sichtbar} />}
+              {t.kind === "browser" && <BrowserFenster tab={t} sichtbar={sichtbar && !p.overlay && !zieht} />}
+              {t.kind === "artefakt" && <ArtefaktFenster tab={t} />}
+            </div>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
