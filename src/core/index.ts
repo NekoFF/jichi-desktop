@@ -50,6 +50,7 @@ export {
   watchAppearance,
   writePreferences,
   type Appearance,
+  type PanelLayout,
   type Preferences,
 } from "./preferences.ts";
 export {

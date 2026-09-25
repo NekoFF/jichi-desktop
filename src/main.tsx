@@ -33,6 +33,7 @@ import {
   Settings,
   Sun,
   Terminal,
+  Trash2,
   Wrench,
   X,
 } from "lucide-react";
@@ -55,6 +56,7 @@ import {
   type DoctorReport,
   type LaunchConfig,
   type Preferences,
+  type StoredSession,
   type Snapshot,
   type ToolItem,
   type TranscriptItem,
@@ -170,17 +172,50 @@ function Bericht({ bericht }: { bericht: DoctorReport | null }) {
 
 function Seitenleiste({
   snap,
+  layout,
   oeffneEinstellungen,
 }: {
   snap: Snapshot;
+  layout: Preferences["layout"];
   oeffneEinstellungen: () => void;
 }) {
   const [suche, setSuche] = useState("");
+  const [zuLoeschen, setZuLoeschen] = useState<StoredSession | null>(null);
+  const [loescht, setLoescht] = useState(false);
+  const [loeschfehler, setLoeschfehler] = useState<string | null>(null);
+  const abbrechen = useRef<HTMLButtonElement>(null);
   const gefunden = useMemo(() => {
     const begriff = suche.trim().toLowerCase();
     if (!begriff) return snap.sessions;
     return snap.sessions.filter((s) => s.title.toLowerCase().includes(begriff));
   }, [snap.sessions, suche]);
+
+  useEffect(() => {
+    if (!zuLoeschen) return;
+    const schliessen = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !loescht) setZuLoeschen(null);
+    };
+    window.addEventListener("keydown", schliessen);
+    return () => window.removeEventListener("keydown", schliessen);
+  }, [zuLoeschen, loescht]);
+
+  useEffect(() => {
+    if (zuLoeschen) abbrechen.current?.focus();
+  }, [zuLoeschen]);
+
+  async function loeschen() {
+    if (!zuLoeschen) return;
+    setLoescht(true);
+    setLoeschfehler(null);
+    try {
+      await agent.deleteSession(zuLoeschen.id);
+      setZuLoeschen(null);
+    } catch (ursache) {
+      setLoeschfehler(ursache instanceof Error ? ursache.message : String(ursache));
+    } finally {
+      setLoescht(false);
+    }
+  }
 
   return (
     <aside className="seite">
@@ -188,12 +223,12 @@ function Seitenleiste({
           das Fenster fassen könnte. Diese Zeile und die Kopfzeile sind der
           Ersatz dafür. */}
       <div className="marke" data-tauri-drag-region>
-        <span className="marke-zeichen" data-tauri-drag-region>
-          <Terminal size={13} />
-        </span>
-        <span className="marke-name" data-tauri-drag-region>
-          jichi
-        </span>
+        {layout === "classic" && (
+          <>
+            <span className="marke-zeichen" data-tauri-drag-region><Terminal size={13} /></span>
+            <span className="marke-name" data-tauri-drag-region>jichi</span>
+          </>
+        )}
       </div>
 
       <div className="seite-inhalt">
@@ -220,14 +255,23 @@ function Seitenleiste({
           </div>
         ) : (
           gefunden.map((s) => (
-            <button
-              key={s.id}
-              className={`zeile${s.id === snap.sessionId ? " aktiv" : ""}`}
-              title={`${s.title}\n${s.workspace ?? ""}\n${relativeTime(s.modified)}`}
-              onClick={() => void agent.loadSession(s.id)}
-            >
-              <span>{s.title}</span>
-            </button>
+            <div key={s.id} className={`sitzung${s.id === snap.sessionId ? " aktiv" : ""}`}>
+              <button
+                className="sitzung-oeffnen"
+                title={`${s.title}\n${s.workspace ?? ""}\n${relativeTime(s.modified)}`}
+                onClick={() => void agent.loadSession(s.id)}
+              >
+                <span>{s.title}</span>
+              </button>
+              <button
+                className="sitzung-loeschen"
+                aria-label={`Chat ${s.title} löschen`}
+                title="Chat löschen"
+                onClick={() => { setLoeschfehler(null); setZuLoeschen(s); }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))
         )}
       </div>
@@ -238,6 +282,24 @@ function Seitenleiste({
           <span>Einstellungen</span>
         </button>
       </div>
+      {zuLoeschen && (
+        <div className="ueber" onMouseDown={(e) => {
+          if (e.target === e.currentTarget && !loescht) setZuLoeschen(null);
+        }}>
+          <div className="tafel loesch-dialog" role="alertdialog" aria-modal="true"
+            aria-labelledby="loesch-titel" aria-describedby="loesch-text">
+            <h2 id="loesch-titel">Chat löschen?</h2>
+            <p id="loesch-text">„{zuLoeschen.title}“ wird dauerhaft aus deiner Chatliste entfernt.</p>
+            {loeschfehler && <p className="hinweis fehler" role="alert">{loeschfehler}</p>}
+            <div className="tafel-fuss">
+              <button ref={abbrechen} className="knopf" disabled={loescht} onClick={() => setZuLoeschen(null)}>Abbrechen</button>
+              <button className="knopf gefahr" disabled={loescht} onClick={() => void loeschen()}>
+                {loescht ? "Löscht …" : "Chat löschen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -507,6 +569,22 @@ function Einstellungen({
           </select>
         </label>
 
+        <div className="feld">
+          <span>Fensterlayout</span>
+          <div className="layout-optionen" role="group" aria-label="Fensterlayout">
+            <button type="button" className={prefs.layout === "floating" ? "gewaehlt" : ""}
+              aria-pressed={prefs.layout === "floating"}
+              onClick={() => setPrefs({ ...prefs, layout: "floating" })}>
+              Freistehende Seitenleiste
+            </button>
+            <button type="button" className={prefs.layout === "classic" ? "gewaehlt" : ""}
+              aria-pressed={prefs.layout === "classic"}
+              onClick={() => setPrefs({ ...prefs, layout: "classic" })}>
+              Klassisch
+            </button>
+          </div>
+        </div>
+
         <div className="abschnitt">
           <h3>KI-Verbindung</h3>
           <div className="bericht">
@@ -631,8 +709,8 @@ function App() {
           : "";
 
   return (
-    <div className="app">
-      <Seitenleiste snap={snap} oeffneEinstellungen={() => setEinstellungen(true)} />
+    <div className={`app layout-${prefs.layout}`}>
+      <Seitenleiste snap={snap} layout={prefs.layout} oeffneEinstellungen={() => setEinstellungen(true)} />
 
       <main className="haupt">
         <header className="kopf" data-tauri-drag-region>

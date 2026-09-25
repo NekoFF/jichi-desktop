@@ -32,6 +32,9 @@ class FakeAgent implements Transport {
   #events: TransportEvents | null = null;
   #alive = false;
   spawns: SpawnSpec[] = [];
+  savedSessions: StoredSession[] = [
+    { id: "S0", title: "früheres Gespräch", workspace: "/tmp/alt", mode: "chat", modified: 1, turns: 4 },
+  ];
 
   // Zustand des Rechners, den der Test stellt.
   readonly schluesselbund = new Map<string, string>();
@@ -55,9 +58,11 @@ class FakeAgent implements Transport {
   }
 
   async sessions(): Promise<StoredSession[]> {
-    return [
-      { id: "S0", title: "früheres Gespräch", workspace: "/tmp/alt", mode: "chat", modified: 1, turns: 4 },
-    ];
+    return [...this.savedSessions];
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    this.savedSessions = this.savedSessions.filter((session) => session.id !== sessionId);
   }
 
   async start(spec: SpawnSpec) {
@@ -275,6 +280,8 @@ await agent.init();
 check("offline, solange nichts gestartet wurde", agent.getSnapshot().status === "offline");
 check("darf senden, obwohl offline", agent.getSnapshot().canSend);
 check("gespeicherte Sitzungen für die Seitenleiste", agent.getSnapshot().sessions.length === 1);
+await agent.deleteSession("S0");
+check("gelöschter Chat verschwindet aus der Seitenleiste", agent.getSnapshot().sessions.length === 0);
 check(
   "Arbeitsverzeichnis kommt von der Plattform",
   agent.getSnapshot().cwd === "/tmp/werkstatt",

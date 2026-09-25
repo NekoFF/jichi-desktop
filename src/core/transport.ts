@@ -109,6 +109,7 @@ export interface Transport {
   defaultLaunch(): Promise<LaunchSuggestion>;
   probe(program: string): Promise<string>;
   sessions(): Promise<StoredSession[]>;
+  deleteSession(sessionId: string): Promise<void>;
   /** Startet den Agenten und liefert die Generation dieses Kindes. */
   start(spec: SpawnSpec): Promise<number>;
   send(line: string): Promise<void>;
@@ -152,6 +153,7 @@ export const tauriTransport: Transport = {
   probe: (program) => invoke<string>("probe", { program }).catch(fail),
 
   sessions: () => invoke<StoredSession[]>("sessions").catch(fail),
+  deleteSession: (sessionId) => invoke<void>("delete_session", { sessionId }).catch(fail),
 
   start: ({ program, args, cwd, env }) =>
     invoke<number>("acp_start", {

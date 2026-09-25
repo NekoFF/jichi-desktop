@@ -956,6 +956,46 @@ fn sessions() -> Result<Vec<StoredSession>, String> {
     }
 }
 
+#[tauri::command]
+fn delete_session(session_id: String) -> Result<(), String> {
+    let root = home().ok_or("Das Benutzerverzeichnis wurde nicht gefunden.")?;
+    delete_session_in(&root.join(".jichi.d/sessions"), &session_id)
+}
+
+/// Die Id wird nie als Pfad verwendet. Nur eine tatsächlich gelesene Sitzung
+/// darf gelöscht werden; damit kann selbst eine fremde oder defekte Id nicht
+/// aus dem Sitzungsverzeichnis ausbrechen.
+fn delete_session_in(dir: &Path, session_id: &str) -> Result<(), String> {
+    if session_id.is_empty() {
+        return Err("Die Sitzungs-ID fehlt.".into());
+    }
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Sitzungen konnten nicht gelesen werden: {e}"))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json")
+            || !entry.file_type().map(|t| t.is_file()).unwrap_or(false)
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let id = json
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .or_else(|| path.file_stem().and_then(|s| s.to_str()));
+        if id == Some(session_id) {
+            return std::fs::remove_file(&path)
+                .map_err(|e| format!("Chat konnte nicht gelöscht werden: {e}"));
+        }
+    }
+    Err("Dieser Chat ist nicht mehr vorhanden.".into())
+}
+
 /// Die Logik getrennt vom Ort, damit sie gegen ein Testverzeichnis läuft.
 fn sessions_in(dir: &Path) -> Vec<StoredSession> {
     let entries = match std::fs::read_dir(dir) {
@@ -1162,6 +1202,7 @@ pub fn run() {
             default_launch,
             probe,
             sessions,
+            delete_session,
             readiness,
             doctor,
             write_config,
@@ -1337,6 +1378,29 @@ mod tests {
         assert_eq!(found.iter().find(|s| s.id == "ccc").unwrap().title, "ohne Titel");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn nur_die_gewaehlte_sitzung_wird_geloescht() {
+        let dir = std::env::temp_dir().join(format!("jichi-desktop-delete-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("eins.json"), r#"{"sessionId":"eins","title":"A"}"#).unwrap();
+        std::fs::write(dir.join("zwei.json"), r#"{"sessionId":"zwei","title":"B"}"#).unwrap();
+        let ausserhalb = dir
+            .parent()
+            .unwrap()
+            .join(format!("jichi-delete-guard-{}", std::process::id()));
+        std::fs::write(&ausserhalb, "behalten").unwrap();
+
+        assert!(delete_session_in(&dir, "../jichi-delete-guard").is_err());
+        assert!(ausserhalb.exists());
+        delete_session_in(&dir, "eins").unwrap();
+        assert!(!dir.join("eins.json").exists());
+        assert!(dir.join("zwei.json").exists());
+
+        std::fs::remove_file(ausserhalb).unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -139,6 +139,7 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.loadSession(id)` | Gespeichertes Gespräch öffnen; der Verlauf wird eingespielt. |
 | `agent.answerPermission(id \| null)` | Antwort auf die Berechtigungsfrage. |
 | `agent.refreshSessions()` | Seitenleiste neu lesen (nach jedem Zug automatisch). |
+| `agent.deleteSession(id)` | Gespeicherten Chat löschen; bei aktivem Chat zuerst neue Sitzung öffnen. Die Oberfläche muss vorher bestätigen lassen. |
 | `agent.setConfig(config)` | Einstellungen speichern und neu verbinden. |
 | `agent.config` | Aktuelle Einstellungen, oder `null` vor `init()`. |
 | `agent.disconnect()` | Prozess beenden. |
@@ -149,7 +150,7 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.pickWorkspace()` | Ordnerauswahl des Systems, dann dort neue Sitzung. |
 | `agent.openWorkspace(path)` | Dasselbe mit bekanntem Pfad. |
 
-Für Name und Erscheinungsbild gibt es `readPreferences()`, `writePreferences()`
+Für Name, Erscheinungsbild und Fensterlayout gibt es `readPreferences()`, `writePreferences()`
 und `applyAppearance()` in `src/core/preferences.ts` — keine eigene Ablage
 erfinden. `applyAppearance` setzt `data-theme` auf `<html>`, dieselbe Fläche, auf
 der das Design System hell und dunkel unterscheidet.

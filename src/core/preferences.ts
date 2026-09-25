@@ -11,6 +11,7 @@
  */
 
 export type Appearance = "system" | "light" | "dark";
+export type PanelLayout = "floating" | "classic";
 
 export interface Preferences {
   /** Wie der Agent den Benutzer anspricht. Rein lokal, nichts mit dem Konto zu tun. */
@@ -18,6 +19,8 @@ export interface Preferences {
   /** Sprache der Oberfläche. Vorerst nur Deutsch. */
   language: "de";
   appearance: Appearance;
+  /** Die neue freistehende Seitenleiste oder Claudes ursprüngliches Fensterlayout. */
+  layout: PanelLayout;
 }
 
 const STORAGE_KEY = "jichi-desktop.preferences.v1";
@@ -26,6 +29,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   name: "",
   language: "de",
   appearance: "system",
+  layout: "floating",
 };
 
 export function readPreferences(): Preferences {
@@ -40,6 +44,7 @@ export function readPreferences(): Preferences {
         parsed.appearance === "light" || parsed.appearance === "dark"
           ? parsed.appearance
           : "system",
+      layout: parsed.layout === "classic" ? "classic" : "floating",
     };
   } catch {
     return { ...DEFAULT_PREFERENCES };

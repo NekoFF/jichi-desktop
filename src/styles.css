@@ -56,6 +56,28 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .app { display: grid; grid-template-columns: var(--seite) 1fr; height: 100vh; }
 .app.schmal { grid-template-columns: 1fr; }
 
+/* Das neue Layout: links ein eigenständiges weißes Blatt, rechts die ruhige,
+   leicht graue Arbeitsfläche. Das klassische Layout oben bleibt unverändert. */
+.app.layout-floating {
+  --seite: clamp(260px, 22vw, 320px);
+  gap: 8px;
+  padding: 8px;
+  background: var(--color-surface-container-low);
+}
+.app.layout-floating .seite {
+  border: 1px solid var(--color-outline-variant);
+  border-radius: 20px;
+  background: var(--color-surface-container-lowest);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.app.layout-floating .haupt { background: var(--color-surface-container-low); }
+.app.layout-floating .kopf { border-bottom-color: transparent; }
+.app.layout-floating .seite-fuss { border-top-color: var(--color-outline-variant); }
+/* Das Betriebssystem zeichnet die äußere Windows-Ecke selbst eckig. */
+html:not(.mac) .app.layout-floating { padding: 0; gap: 0; }
+html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1px 0 0; box-shadow: none; }
+
 .seite {
   display: flex; flex-direction: column; min-width: 0;
   background: var(--color-surface-container-low);
@@ -96,6 +118,27 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
   flex: none; font: inherit; font-size: 11px;
   color: var(--color-on-surface-variant); letter-spacing: .02em;
 }
+
+.sitzung {
+  display: flex; align-items: center; height: var(--zeile);
+  border-radius: var(--r); transition: background .1s ease;
+}
+.sitzung:hover, .sitzung:focus-within { background: var(--color-surface-container-high); }
+.sitzung.aktiv { background: var(--color-surface-container-high); font-weight: 500; }
+.sitzung-oeffnen {
+  display: flex; align-items: center; flex: 1; min-width: 0; height: 100%;
+  padding: 0 8px; text-align: left;
+}
+.sitzung-oeffnen span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitzung-loeschen {
+  width: 26px; height: 24px; flex: none; display: grid; place-items: center;
+  margin-right: 3px; border-radius: var(--r); color: var(--color-on-surface-variant);
+  opacity: 0; transition: opacity .1s ease, background .1s ease;
+}
+.sitzung:hover .sitzung-loeschen,
+.sitzung:focus-within .sitzung-loeschen { opacity: 1; }
+.sitzung-loeschen:hover { background: var(--color-surface-container); color: var(--color-error); }
+.sitzung-loeschen:focus-visible { opacity: 1; outline: 2px solid var(--color-primary); outline-offset: -2px; }
 
 .suche { background: var(--color-surface-container); margin-bottom: 2px; }
 .suche input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; }
@@ -280,6 +323,25 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 }
 .tafel h2 { margin: 0 0 16px; font-size: 15px; font-weight: 600; }
 .tafel-fuss { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.loesch-dialog { width: min(360px, 100%); }
+.loesch-dialog h2 { margin-bottom: 7px; }
+.loesch-dialog p { margin: 0; line-height: 1.5; color: var(--color-on-surface-variant); }
+.loesch-dialog .hinweis { margin-top: 12px; color: var(--color-error); }
+.loesch-dialog .tafel-fuss { margin-top: 22px; }
+.loesch-dialog .knopf.gefahr { color: var(--color-error); }
+
+.layout-optionen { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.layout-optionen button {
+  min-height: 34px; padding: 5px 9px; border: 1px solid var(--color-outline-variant);
+  border-radius: var(--r); background: var(--color-surface-container-lowest);
+  text-align: center; font-size: 12px;
+}
+.layout-optionen button:hover { background: var(--color-surface-container-low); }
+.layout-optionen button.gewaehlt {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface-container-lowest));
+  color: var(--color-primary); font-weight: 600;
+}
 
 .feld { display: block; margin-bottom: 12px; }
 .feld > span { display: block; margin-bottom: 5px; color: var(--color-on-surface-variant); }

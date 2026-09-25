@@ -372,6 +372,24 @@ export class Agent {
     }
   }
 
+  /** Eine gespeicherte Sitzung nach Bestätigung durch die Oberfläche löschen. */
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.#snapshot.sessions.some((session) => session.id === sessionId)) {
+      throw new Error("Dieser Chat ist nicht mehr vorhanden.");
+    }
+    if (this.#snapshot.sessionId === sessionId) {
+      if (this.#snapshot.status === "busy" || this.#snapshot.status === "cancelling") {
+        throw new Error("Bitte warte, bis die Antwort beendet ist.");
+      }
+      await this.newSession();
+      if (this.#snapshot.sessionId === sessionId || this.#snapshot.status !== "ready") {
+        throw new Error("Der aktive Chat konnte nicht geschlossen werden.");
+      }
+    }
+    await this.#transport.deleteSession(sessionId);
+    await this.refreshSessions();
+  }
+
   // ── Innenleben ─────────────────────────────────────────────────────────────
 
   #id(): string {
