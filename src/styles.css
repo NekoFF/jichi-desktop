@@ -929,3 +929,22 @@ main.haupt {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 7px;
   background: color-mix(in srgb, var(--color-on-surface) 6%, transparent); font-size: 12px;
 }
+
+/* Vorschau eines neuen Dokuments: ein Blatt Papier */
+.vorschau-dokument { border: 1px solid var(--color-outline-variant); border-radius: 8px; overflow: hidden; }
+.vorschau-dokument-kopf {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 11.5px;
+  background: var(--color-surface-container);
+}
+.vorschau-dokument-kopf > span:first-child { flex: 1; min-width: 0; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vorschau-dokument-blatt {
+  max-height: 320px; overflow-y: auto; padding: 16px 22px;
+  background: var(--color-surface-container-lowest); font-size: 13px; line-height: 1.55;
+}
+.vorschau-dokument-titel { margin: 0 0 10px; font-size: 1.35em; font-weight: 650; }
+.vorschau-blatt { padding: 8px 10px; max-height: 320px; overflow: auto; background: var(--color-surface-container-lowest); }
+.vorschau-blatt-name { font-size: 11px; color: var(--color-on-surface-variant); margin-bottom: 4px; }
+.vorschau-blatt table { border-collapse: collapse; font-size: 12px; }
+.vorschau-blatt th, .vorschau-blatt td { padding: 3px 9px; border: 1px solid var(--color-outline-variant); text-align: left; white-space: nowrap; }
+.vorschau-blatt th { background: var(--color-surface-container); font-weight: 600; }
+.vorschau-blatt td.formel { font-family: var(--font-mono); color: var(--color-primary); }

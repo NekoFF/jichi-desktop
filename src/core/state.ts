@@ -19,6 +19,7 @@ import type {
   ToolStatus,
 } from "./protocol.ts";
 import type {
+  DocumentsStatus,
   DoctorReport,
   GatewayModel,
   Readiness,
@@ -143,6 +144,8 @@ export interface Snapshot {
   gateway: GatewayState | null;
   /** Das aktive Modell liest Bilder — nur dann dürfen welche mit. */
   canAttachImages: boolean;
+  /** PDF, Word, Excel für den Agenten. `null`, solange nicht gefragt. */
+  documents: DocumentsStatus | null;
   /**
    * Der erste Start ist nötig. Bleibt `false`, solange `readiness` aussteht —
    * sonst blitzt der Einrichtungsbildschirm bei jedem Programmstart kurz auf.
@@ -187,6 +190,7 @@ export function emptySnapshot(): Snapshot {
     mode: "chat",
     gateway: null,
     canAttachImages: false,
+    documents: null,
     needsSetup: false,
     setupHold: false,
     home: null,

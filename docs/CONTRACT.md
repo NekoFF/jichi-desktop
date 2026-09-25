@@ -162,6 +162,8 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.refreshGateway()` | Freie Modelle (`jlu/…`) am Gateway abfragen → `snapshot.gateway`. |
 | `agent.readProjectFile(path)` | Heutiger Inhalt einer Datei im Projekt — für die Diff-Vorschau. |
 | `agent.openLink(url)` | http(s)-Verweis im Browser des Systems öffnen. |
+| `agent.pickAttachment()` | Datei für den nächsten Zug wählen; PDF, Word, Excel … kommen als Text. |
+| `agent.setDocuments(bool)` | Dokumenten-Werkzeuge für jichi ein/aus (Eintrag `dokumente` in `~/.jichi`, mit Sicherung). Neustart, Chat bleibt. Stand in `snapshot.documents`. |
 
 **Terminals.** Die Anwendung meldet `terminal: true` an (nicht unter Windows).
 jichi lässt `run_terminal_command`/`run_tests` dann über `terminal/*` hier
@@ -236,8 +238,8 @@ keine Arbeitsgrundlage mehr.
 ## 7. Prüfen
 
 ```sh
-npm run check        # Typen + 89 Prüfungen des TS-Kerns (25.09.2026)
-npm run check:rust   # 25 aktive Rust-Tests, 2 Integrationstests ignoriert
+npm run check        # Typen + 97 Prüfungen des TS-Kerns (25.09.2026)
+npm run check:rust   # 36 aktive Rust-Tests, 2 Integrationstests ignoriert
 npm run tauri dev    # die Anwendung
 ```
 

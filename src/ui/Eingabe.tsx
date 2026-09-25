@@ -15,6 +15,7 @@ import {
   Check,
   ChevronDown,
   CornerDownLeft,
+  FileSpreadsheet,
   FileText,
   FolderOpen,
   GitCompare,
@@ -114,7 +115,8 @@ function alsBild(datei: File): Promise<Bild> {
 
 // ── Das Menü hinter „+“ ──────────────────────────────────────────────────────
 
-const AUFTRAEGE: Array<{ icon: ReactNode; titel: string; text: string }> = [
+const AUFTRAEGE: Array<{ icon: ReactNode; titel: string; text: string; dokumente?: boolean }> = [
+  { icon: <FileSpreadsheet size={15} />, titel: "Bericht als Word", text: "Fasse den Stand dieses Projekts als Bericht zusammen und speichere ihn als bericht.docx.", dokumente: true },
   { icon: <FileText size={15} />, titel: "Projekt erklären", text: "Erklär mir den Aufbau dieses Projekts und die wichtigsten Teile." },
   { icon: <Terminal size={15} />, titel: "Tests ausführen", text: "Führe die Tests aus und fasse zusammen, was fehlschlägt." },
   { icon: <GitCompare size={15} />, titel: "Änderungen prüfen", text: "Sieh dir die noch nicht committeten Änderungen an (git diff) und prüfe sie auf Fehler." },
@@ -165,8 +167,8 @@ function PlusMenue({
           />
           <Menuepunkt
             icon={<Paperclip size={15} />}
-            titel="Textdatei"
-            text="als Kontext für diese Nachricht"
+            titel="Datei"
+            text="PDF, Word, Excel oder Text als Kontext"
             onClick={tun(dateiAnhaengen)}
           />
           <Menuepunkt
@@ -176,8 +178,17 @@ function PlusMenue({
             disabled={!snap.canSwitch}
             onClick={tun(() => void agent.pickWorkspace().catch(() => {}))}
           />
+          {snap.documents && !snap.documents.enabled && !snap.documents.problem && (
+            <Menuepunkt
+              icon={<FileSpreadsheet size={15} />}
+              titel="Dokumente einschalten"
+              text="jichi liest und erstellt PDF, Word, Excel"
+              disabled={!snap.canSwitch}
+              onClick={tun(() => void agent.setDocuments(true).catch(() => {}))}
+            />
+          )}
           <div className="menue-gruppe">Schnellaufträge</div>
-          {AUFTRAEGE.map((a) => (
+          {AUFTRAEGE.filter((a) => !a.dokumente || snap.documents?.enabled).map((a) => (
             <Menuepunkt
               key={a.titel}
               icon={a.icon}

@@ -120,6 +120,15 @@ export interface GatewayReport {
   models: GatewayModel[];
 }
 
+/** Ob jichi die Dokumenten-Werkzeuge (PDF, Word, Excel …) dieser Anwendung hat. */
+export interface DocumentsStatus {
+  enabled: boolean;
+  /** Der Eintrag zeigt auf ein vorhandenes Programm. */
+  reachable: boolean;
+  /** Die Konfiguration lässt sich nicht sicher bearbeiten (z. B. Kommentare). */
+  problem: string | null;
+}
+
 /** Eine angehängte Textdatei. Der Inhalt geht als eingebettete Ressource mit. */
 export interface FileAttachment {
   name: string;
@@ -198,8 +207,12 @@ export interface Transport {
   /** Einen Verweis im Browser öffnen. Nur http(s). */
   openUrl(url: string): Promise<void>;
 
-  /** Eine vom Benutzer gewählte Textdatei lesen (≤ 256 KB, kein Binär). */
+  /** Eine vom Benutzer gewählte Datei lesen: Text, PDF, Word, Excel … als Text. */
   readAttachment(path: string): Promise<FileAttachment>;
+
+  /** Dokumenten-Werkzeuge für jichi: Stand abfragen, ein- oder ausschalten. */
+  documentsStatus(): Promise<DocumentsStatus>;
+  documentsSet(enable: boolean): Promise<DocumentsStatus>;
 }
 
 interface LineEvent {
@@ -277,6 +290,8 @@ export const tauriTransport: Transport = {
   termRelease: (terminalId) => invoke<void>("term_release", { terminalId }).catch(fail),
 
   readAttachment: (path) => invoke<FileAttachment>("read_attachment", { path }).catch(fail),
+  documentsStatus: () => invoke<DocumentsStatus>("documents_status").catch(fail),
+  documentsSet: (enable) => invoke<DocumentsStatus>("documents_set", { enable }).catch(fail),
 
   async openUrl(url) {
     if (!/^https?:\/\//i.test(url)) throw new Error("Nur http- und https-Verweise werden geöffnet.");

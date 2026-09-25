@@ -32,7 +32,9 @@ use std::sync::{Mutex, OnceLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod documents;
 mod gateway;
+mod mcp_dokumente;
 mod terminal;
 
 // ── Zustand ──────────────────────────────────────────────────────────────────
@@ -682,7 +684,7 @@ fn jlu_config() -> serde_json::Value {
         m
     };
 
-    serde_json::json!({
+    let mut config = serde_json::json!({
         "models": [
             model("coder", "jlu/qwen3-coder-next", 196608, 65536, &[]),
             model("long", "jlu/qwen3.8-27b", 977232, 32768, &[]),
@@ -690,7 +692,127 @@ fn jlu_config() -> serde_json::Value {
             model("embed", "jlu/qwen3-embedding", 0, 0, &["embed"]),
             model("rerank", "jlu/jina-rerank", 0, 0, &["rerank"]),
         ]
+    });
+    // Eine neue Konfiguration bekommt die Dokumente gleich mit.
+    if let Ok(exe) = std::env::current_exe() {
+        config["mcpServers"] = serde_json::json!([docs_entry(&exe)]);
+    }
+    config
+}
+
+// ── Dokumente für den Agenten ────────────────────────────────────────────────
+//
+// Der Server steckt in diesem Programm (`--mcp-dokumente`). jichi kennt MCP-
+// Server nur aus seiner Konfiguration — ACP reicht keine weiter —, also muss
+// dort ein Eintrag stehen. Er wird nur auf ausdrücklichen Wunsch geschrieben,
+// mit Sicherung der alten Datei.
+
+const DOCS_NAME: &str = "dokumente";
+
+fn docs_entry(exe: &Path) -> serde_json::Value {
+    serde_json::json!({
+        "name": DOCS_NAME,
+        "type": "stdio",
+        "command": exe.to_string_lossy(),
+        "args": [mcp_dokumente::FLAG],
+        // Lesen ohne Rückfrage; Schreiben fragt wie jedes andere Werkzeug.
+        "autoApprove": ["read_document", "list_sheets"]
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DocsStatus {
+    /// Ein Eintrag steht in der Konfiguration.
+    enabled: bool,
+    /// Er zeigt auf ein Programm, das es gibt.
+    reachable: bool,
+    /// Die Konfiguration ist kein reines JSON (z. B. mit Kommentaren) — dann
+    /// schreibt diese Anwendung nicht hinein.
+    problem: Option<String>,
+}
+
+fn read_config_json_at(path: &Path) -> Result<Option<serde_json::Value>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|_| format!("{} ist kein reines JSON (Kommentare?) — bitte den Eintrag von Hand ergänzen.", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
+}
+
+fn read_config_json() -> Result<Option<serde_json::Value>, String> {
+    read_config_json_at(&config_path())
+}
+
+fn docs_status_now() -> DocsStatus {
+    match read_config_json() {
+        Ok(Some(json)) => {
+            let entry = json
+                .get("mcpServers")
+                .and_then(|m| m.as_array())
+                .and_then(|a| a.iter().find(|e| e.get("name").and_then(|n| n.as_str()) == Some(DOCS_NAME)));
+            let reachable = entry
+                .and_then(|e| e.get("command").and_then(|c| c.as_str()))
+                .is_some_and(|c| is_executable(Path::new(c)));
+            DocsStatus { enabled: entry.is_some(), reachable, problem: None }
+        }
+        Ok(None) => DocsStatus { enabled: false, reachable: false, problem: None },
+        Err(e) => DocsStatus { enabled: false, reachable: false, problem: Some(e) },
+    }
+}
+
+/// Sicher schreiben: Sicherung, dann Nachbardatei, dann umbenennen; Rechte 0600.
+fn write_config_json_at(path: &Path, json: &serde_json::Value) -> Result<(), String> {
+    let path = path.to_path_buf();
+    if path.exists() {
+        std::fs::copy(&path, path.with_extension("bak-desktop"))
+            .map_err(|e| format!("Sicherung von {} fehlgeschlagen: {e}", path.display()))?;
+    }
+    let text = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("desktop-tmp");
+    std::fs::write(&tmp, format!("{text}\n")).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+    }
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("{}: {e}", path.display())
+    })
+}
+
+/// `enable`: Eintrag anlegen oder auf dieses Programm umstellen. Sonst entfernen.
+fn docs_set_now(enable: bool) -> Result<DocsStatus, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("Eigener Pfad unbekannt: {e}"))?;
+    docs_set_in(&config_path(), &exe, enable)?;
+    Ok(docs_status_now())
+}
+
+fn docs_set_in(config: &Path, exe: &Path, enable: bool) -> Result<(), String> {
+    let mut json = read_config_json_at(config)?.ok_or("Es gibt noch keine Konfiguration des Agenten.")?;
+    let obj = json.as_object_mut().ok_or("Die Konfiguration ist kein JSON-Objekt.")?;
+    let servers = obj.entry("mcpServers").or_insert_with(|| serde_json::json!([]));
+    let list = servers
+        .as_array_mut()
+        .ok_or("„mcpServers“ ist keine Liste (jichi erwartet eine Liste, siehe docs/MCP.md).")?;
+    list.retain(|e| e.get("name").and_then(|n| n.as_str()) != Some(DOCS_NAME));
+    if enable {
+        list.push(docs_entry(exe));
+    }
+    write_config_json_at(config, &json)
+}
+
+/// Nach einem Umzug des Programms (neue Version, anderer Ort) den Eintrag
+/// nachführen — aber nur, wenn der alte Pfad ins Leere zeigt. Zeigt er auf ein
+/// anderes, vorhandenes Programm, hat das jemand so gewollt.
+fn docs_repair_now() {
+    let status = docs_status_now();
+    if status.enabled && !status.reachable {
+        let _ = docs_set_now(true);
+    }
 }
 
 /// Legt die Konfiguration des Agenten an. Verweigert, wenn es schon eine gibt —
@@ -1397,6 +1519,15 @@ fn read_attachment_now(path: &str) -> Result<Attachment, String> {
     if !meta.is_file() {
         return Err(format!("{} ist keine Datei", p.display()));
     }
+    // PDF, Word, Excel …: als Text, den das Modell lesen kann.
+    if documents::is_document(&p) {
+        let text = documents::read(&p, &documents::Auswahl { max_chars: Some(60_000), ..Default::default() })?;
+        return Ok(Attachment {
+            name: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            path: p.to_string_lossy().into_owned(),
+            text,
+        });
+    }
     if meta.len() > ATTACH_MAX {
         return Err(format!("{} ist größer als 256 KB.", p.display()));
     }
@@ -1479,6 +1610,20 @@ async fn acp_stop(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn documents_status() -> Result<DocsStatus, String> {
+    blocking(|| {
+        docs_repair_now();
+        docs_status_now()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn documents_set(enable: bool) -> Result<DocsStatus, String> {
+    blocking(move || docs_set_now(enable)).await?
+}
+
+#[tauri::command]
 async fn read_attachment(path: String) -> Result<Attachment, String> {
     blocking(move || read_attachment_now(&path)).await?
 }
@@ -1545,6 +1690,12 @@ fn acp_running(state: State<Acp>) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Als Dokumenten-Server gestartet (von jichi, nicht vom Benutzer): kein
+    // Fenster, nur JSON-RPC über stdin/stdout.
+    if std::env::args().any(|a| a == mcp_dokumente::FLAG) {
+        mcp_dokumente::serve();
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1567,6 +1718,8 @@ pub fn run() {
             acp_running,
             gateway_models,
             read_attachment,
+            documents_status,
+            documents_set,
             read_workspace_file,
             term_create,
             term_output,
@@ -1851,6 +2004,48 @@ mod tests {
             std::os::unix::fs::symlink(root.join("geheim.txt"), projekt.join("link.txt")).unwrap();
             assert!(read_workspace_file_in(&projekt, "link.txt").is_err(), "Verweis nach draussen");
         }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn dokumente_eintrag_sicher_setzen_und_entfernen() {
+        let root = std::env::temp_dir().join("jichi-desktop-test-docs-config");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = root.join(".jichi");
+        let exe = root.join("jichi-desktop");
+        std::fs::write(&cfg, r#"{"models":[{"name":"coder"}],"mcpServers":[{"name":"andere","command":"x"}]}"#).unwrap();
+
+        docs_set_in(&cfg, &exe, true).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        let servers = json["mcpServers"].as_array().unwrap();
+        assert_eq!(servers.len(), 2, "der fremde Server bleibt");
+        assert_eq!(servers[1]["name"], "dokumente");
+        assert_eq!(servers[1]["args"][0], "--mcp-dokumente");
+        assert_eq!(json["models"][0]["name"], "coder", "der Rest bleibt unangetastet");
+        assert!(root.join(".bak-desktop").exists() || cfg.with_extension("bak-desktop").exists(), "Sicherung");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&cfg).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        // Zweimal einschalten verdoppelt nichts.
+        docs_set_in(&cfg, &exe, true).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(json["mcpServers"].as_array().unwrap().len(), 2);
+        // Ausschalten entfernt nur den eigenen Eintrag.
+        docs_set_in(&cfg, &exe, false).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(json["mcpServers"].as_array().unwrap().len(), 1);
+        assert_eq!(json["mcpServers"][0]["name"], "andere");
+
+        // Mit Kommentaren wird nichts geschrieben.
+        std::fs::write(&cfg, "{ // mein Kommentar\n \"models\": [] }").unwrap();
+        assert!(docs_set_in(&cfg, &exe, true).is_err());
+        assert!(std::fs::read_to_string(&cfg).unwrap().contains("mein Kommentar"));
+        // Ein Objekt statt einer Liste wird nicht umgedeutet.
+        std::fs::write(&cfg, r#"{"mcpServers":{"fs":{}}}"#).unwrap();
+        assert!(docs_set_in(&cfg, &exe, true).is_err());
         std::fs::remove_dir_all(&root).ok();
     }
 

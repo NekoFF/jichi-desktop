@@ -12,6 +12,7 @@ import { AlertTriangle } from "lucide-react";
 
 import { agent, applyPlan, planOf, visible, type PlannedFile } from "../core/index.ts";
 import { Diff } from "./Diff.tsx";
+import { Markdown } from "./Markdown.tsx";
 
 function Befehl({ command, background }: { command: string; background: boolean }) {
   const { text, suspicious } = visible(command);
@@ -104,6 +105,48 @@ export const Vorschau = memo(function Vorschau({
         <div className="vorschau-dateien">
           {plan.files.map((f) => (
             <Datei key={f.path} file={f} cacheKey={cacheKey} live={live} />
+          ))}
+        </div>
+      );
+    case "document":
+      return (
+        <div className="vorschau-dokument">
+          <div className="vorschau-dokument-kopf">
+            <span>{plan.path}</span>
+            <span className="diff-neu">neues Dokument</span>
+          </div>
+          <div className="vorschau-dokument-blatt">
+            {plan.title && <h1 className="vorschau-dokument-titel">{plan.title}</h1>}
+            <Markdown text={plan.markdown} />
+          </div>
+        </div>
+      );
+    case "sheets":
+      return (
+        <div className="vorschau-dokument">
+          <div className="vorschau-dokument-kopf">
+            <span>{plan.path}</span>
+            <span className="diff-neu">neue Tabelle</span>
+          </div>
+          {plan.sheets.map((b) => (
+            <div key={b.name} className="vorschau-blatt">
+              {plan.sheets.length > 1 && <div className="vorschau-blatt-name">{b.name}</div>}
+              <div className="md-tabelle">
+                <table>
+                  <tbody>
+                    {b.rows.slice(0, 50).map((r, i) => (
+                      <tr key={i}>
+                        {r.map((c, j) => {
+                          const t = c === null || c === undefined ? "" : String(c);
+                          return i === 0 ? <th key={j}>{t}</th> : <td key={j} className={t.startsWith("=") ? "formel" : ""}>{t}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {b.rows.length > 50 && <div className="vorschau-notiz">… {b.rows.length - 50} weitere Zeilen</div>}
+            </div>
           ))}
         </div>
       );

@@ -28,6 +28,10 @@ export interface PlannedFile {
 export type Plan =
   | { kind: "command"; command: string; background: boolean }
   | { kind: "files"; files: PlannedFile[] }
+  /** Ein neues Dokument (Word, PDF) aus Markdown. */
+  | { kind: "document"; path: string; title?: string; markdown: string }
+  /** Eine neue Tabelle (Excel, CSV). */
+  | { kind: "sheets"; path: string; sheets: Array<{ name: string; rows: unknown[][] }> }
   /** Etwas anderes — gezeigt werden die Argumente selbst. */
   | { kind: "other"; args: Record<string, unknown> }
   /** Keine lesbaren Argumente. Das ist verdächtig und wird so gezeigt. */
@@ -58,6 +62,21 @@ export function planOf(rawInput: unknown): Plan {
     return { kind: "unreadable", raw: args === undefined ? "" : JSON.stringify(args) };
   }
   const a = args as Record<string, unknown>;
+
+  // Dokumente: `markdown` statt `content`, damit sie nie für eine Textdatei
+  // gehalten werden, deren alter Inhalt verglichen würde.
+  if (str(a.path) !== undefined && str(a.markdown) !== undefined) {
+    return { kind: "document", path: str(a.path)!, title: str(a.title), markdown: str(a.markdown)! };
+  }
+  if (str(a.path) !== undefined && (Array.isArray(a.sheets) || Array.isArray(a.rows))) {
+    const roh = Array.isArray(a.sheets) ? a.sheets : [{ name: "", rows: a.rows }];
+    const sheets = roh.map((b, i) => {
+      const o = (b ?? {}) as Record<string, unknown>;
+      const rows = Array.isArray(o.rows) ? o.rows.filter(Array.isArray) as unknown[][] : [];
+      return { name: str(o.name) ?? `Blatt ${i + 1}`, rows };
+    });
+    return { kind: "sheets", path: str(a.path)!, sheets };
+  }
 
   const command = str(a.command);
   if (command !== undefined && a.path === undefined && a.edits === undefined) {

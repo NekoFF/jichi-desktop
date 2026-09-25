@@ -201,6 +201,14 @@ class FakeAgent implements Transport {
   async termRelease(id: string) {
     this.released.push(id);
   }
+  dokumente = { enabled: false, reachable: false, problem: null as string | null };
+  async documentsStatus() {
+    return { ...this.dokumente };
+  }
+  async documentsSet(enable: boolean) {
+    this.dokumente = { enabled: enable, reachable: enable, problem: null };
+    return { ...this.dokumente };
+  }
   async readAttachment(path: string) {
     return { name: path.split("/").pop() ?? path, path, text: "Inhalt der Datei" };
   }
@@ -821,6 +829,10 @@ const patch = planOf({ edits: [{ path: "a", old_string: "x", new_string: "y" }, 
 check("apply_patch fasst Änderungen je Datei zusammen", patch.kind === "files" && patch.files.length === 1 &&
   applyPlan("x x", patch.files[0]).text === "z x");
 check("ein Befehl wird als Befehl gelesen", planOf({ command: "make test" }).kind === "command");
+check("ein neues Word-Dokument wird als Dokument gezeigt, nicht als Textdatei",
+  planOf({ path: "bericht.docx", markdown: "# Hallo" }).kind === "document");
+const tabelle = planOf({ path: "t.xlsx", sheets: [{ name: "A", rows: [["x"], [1]] }] });
+check("eine neue Tabelle wird als Tabelle gezeigt", tabelle.kind === "sheets" && tabelle.sheets[0].rows.length === 2);
 check("kaputte Argumente sind unlesbar", planOf('{"command":"sudo id",').kind === "unreadable");
 const versteckt = visible("echo ok\r\u001b[2Krm -rf ~ \u202e");
 check("verborgene Zeichen werden sichtbar", versteckt.suspicious && versteckt.text.includes("␍") &&
@@ -844,6 +856,21 @@ term.reply("session/prompt", { stopReason: "end_turn" });
 await laeuft;
 const antwort = [...befehl.getSnapshot().transcript].reverse().find((i) => i.kind === "message" && i.role === "agent");
 check("eine live geschriebene Antwort trägt ihre Uhrzeit", antwort?.kind === "message" && typeof antwort.at === "number");
+
+// Dokumente einschalten startet den Agenten neu und behält den Chat.
+check("der Stand der Dokumente ist bekannt", befehl.getSnapshot().documents?.enabled === false);
+const vorDok = term.spawns.length;
+const chatDok = befehl.getSnapshot().sessionId;
+const loadsDok = gesendet(term, "session/load");
+laeuft = befehl.setDocuments(true);
+await erwarte(term, "initialize", gesendet(term, "initialize"));
+term.reply("initialize", { protocolVersion: 1, agentCapabilities: { loadSession: true } });
+await erwarte(term, "session/load", loadsDok);
+term.reply("session/load", null);
+await laeuft;
+check("Dokumente an: Neustart mit demselben Chat",
+  befehl.getSnapshot().documents?.enabled === true && term.spawns.length === vorDok + 1 &&
+    befehl.getSnapshot().sessionId === chatDok);
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");

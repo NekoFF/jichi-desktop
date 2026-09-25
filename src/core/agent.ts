@@ -148,6 +148,29 @@ export class Agent {
     void this.#probeVersion();
     await this.refreshReadiness();
     if (this.#snapshot.readiness?.keyStored && !this.#snapshot.needsSetup) void this.refreshGateway();
+    void this.refreshDocuments();
+  }
+
+  // ── Dokumente ──────────────────────────────────────────────────────────────
+
+  async refreshDocuments(): Promise<void> {
+    try {
+      this.#set({ documents: await this.#transport.documentsStatus() });
+    } catch (cause) {
+      this.#diagnose(`Dokumente: ${describe(cause)}`);
+    }
+  }
+
+  /**
+   * PDF, Word, Excel für jichi ein- oder ausschalten. jichi liest seine
+   * MCP-Server beim Start — ein laufender Agent wird darum neu gestartet und
+   * lädt den offenen Chat wieder.
+   */
+  async setDocuments(enable: boolean): Promise<void> {
+    if (this.#busy()) throw new Error(BUSY);
+    const status = await this.#transport.documentsSet(enable);
+    this.#set({ documents: status });
+    await this.#relaunchKeepingChat();
   }
 
   // ── Was der Schlüssel erreicht ─────────────────────────────────────────────
@@ -304,6 +327,7 @@ export class Agent {
     this.#set({ health, setupHold: health.fail > 0 });
     await this.refreshReadiness();
     if (!health.fail) void this.refreshGateway();
+    void this.refreshDocuments();
     return health;
   }
 

@@ -708,6 +708,54 @@ function Leer({
 
 // ── Einstellungen ────────────────────────────────────────────────────────────
 
+/** PDF, Word, Excel für den Agenten — der Schalter und was er bewirkt. */
+function Dokumente({ snap }: { snap: Snapshot }) {
+  const [laeuft, setLaeuft] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const d = snap.documents;
+  const an = !!d?.enabled;
+
+  async function schalten() {
+    setLaeuft(true);
+    setFehler(null);
+    try {
+      await agent.setDocuments(!an);
+    } catch (ursache) {
+      setFehler(nachricht(ursache));
+    } finally {
+      setLaeuft(false);
+    }
+  }
+
+  return (
+    <div className="abschnitt">
+      <div className="abschnitt-kopf">
+        <h3>Dokumente</h3>
+        <span className={`zugang-status${an && d?.reachable ? " bereit" : ""}`}>
+          {!d ? "…" : an ? (d.reachable ? "Eingeschaltet" : "Programm fehlt") : "Aus"}
+        </span>
+      </div>
+      <p className="abschnitt-text">
+        jichi liest PDF, Word, Excel, PowerPoint und OpenDocument im Projekt und erstellt Word-,
+        Excel-, PDF- und CSV-Dateien. Lesen geschieht ohne Rückfrage, Schreiben fragt wie jede andere
+        Änderung. Dafür trägt diese Anwendung sich in <code>~/.jichi</code> ein (mit Sicherung als
+        <code> .jichi.bak-desktop</code>).
+      </p>
+      {(d?.problem || fehler) && <p className="zugang-fehler" role="alert">{d?.problem ?? fehler}</p>}
+      <div className="knopfreihe">
+        <button
+          type="button"
+          className={`knopf${an ? "" : " haupt"}`}
+          disabled={laeuft || !d || !!d.problem || !snap.canSwitch}
+          onClick={() => void schalten()}
+        >
+          {laeuft ? "Wird eingetragen …" : an ? "Ausschalten" : "Einschalten"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const MODELLART: Record<string, string> = {
   chat: "Chat",
   embed: "Einbettung",
@@ -855,6 +903,8 @@ function Einstellungen({
             </div>
           </div>
         </div>
+
+        <Dokumente snap={snap} />
 
         <div className="abschnitt">
           <div className="abschnitt-kopf">
