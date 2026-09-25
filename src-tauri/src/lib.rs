@@ -171,6 +171,30 @@ fn is_executable(p: &Path) -> bool {
     }
 }
 
+/// Darf dieses Programm als Agent gestartet werden?
+///
+/// Die Oberfläche kann `acp_start`, `doctor` und `probe` mit beliebigem
+/// Programm rufen. Gelänge es je, in sie Skript einzuschleusen, wäre das ein
+/// Weg, alles Mögliche auszuführen — mit dem API-Schlüssel in der Umgebung.
+/// Erlaubt ist darum nur ein Programm, dessen Dateiname mit „jichi“ beginnt,
+/// und unter Windows `wsl.exe`, wenn es jichi startet.
+fn agent_program_ok(path: &Path, args: &[String]) -> Result<(), String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if name.starts_with("jichi") {
+        return Ok(());
+    }
+    if cfg!(windows) && (name == "wsl.exe" || name == "wsl") {
+        let erstes = args.iter().find(|a| !a.starts_with('-')).map(|a| a.to_ascii_lowercase());
+        if erstes.as_deref().is_some_and(|a| a.rsplit(['/', '\\']).next().is_some_and(|n| n.starts_with("jichi"))) {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "{} ist nicht jichi — gestartet werden nur Programme namens jichi…",
+        path.display()
+    ))
+}
+
 /// Einen Programmnamen zu einem Pfad auflösen. Enthält die Eingabe einen
 /// Schrägstrich, ist sie schon ein Pfad. Sonst wird der ergänzte PATH abgesucht.
 fn which(program: &str) -> Option<PathBuf> {
@@ -920,6 +944,7 @@ fn run_bounded(
 /// Der Bericht wird unverändert weitergereicht: `{ok, warn, fail, checks:[…]}`.
 fn doctor_now(program: String, env: Option<Vec<EnvSpec>>) -> Result<serde_json::Value, String> {
     let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
+    agent_program_ok(&path, &[])?;
     let resolved = resolve_env(env.as_deref().unwrap_or(&[]))?;
 
     let (stdout, stderr, _code) = run_bounded(
@@ -1081,6 +1106,7 @@ fn default_launch_now() -> Launch {
 /// dass der Benutzer einen Fehlschlag mitten im Gespräch erlebt.
 fn probe_now(program: String) -> Result<String, String> {
     let path = which(&program).ok_or_else(|| format!("{program} nicht gefunden"))?;
+    agent_program_ok(&path, &[])?;
     let out = Command::new(&path)
         .arg("--version")
         .env("PATH", child_path())
@@ -1357,6 +1383,7 @@ fn acp_start_now(
     let path = which(&program).ok_or_else(|| {
         format!("{program} nicht gefunden — vollen Pfad in den Einstellungen eintragen")
     })?;
+    agent_program_ok(&path, &args)?;
     let extra_env = resolve_env(env.as_deref().unwrap_or(&[]))?;
 
     let work_dir = match cwd.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
@@ -2307,6 +2334,18 @@ mod tests {
         assert!(file_info_now(cwd, "fehlt.pdf").is_err());
         assert!(file_info_now(cwd, ".").is_err(), "ein Ordner ist keine Datei");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn nur_jichi_wird_als_agent_gestartet() {
+        assert!(agent_program_ok(Path::new("/usr/local/bin/jichi"), &[]).is_ok());
+        assert!(agent_program_ok(Path::new("/opt/x/jichi-0.12"), &[]).is_ok());
+        assert!(agent_program_ok(Path::new("/bin/sh"), &["-c".into(), "rm -rf ~".into()]).is_err());
+        assert!(agent_program_ok(Path::new("/usr/bin/python3"), &[]).is_err());
+        if cfg!(windows) {
+            assert!(agent_program_ok(Path::new("C:/Windows/System32/wsl.exe"), &["jichi".into(), "--acp".into()]).is_ok());
+            assert!(agent_program_ok(Path::new("C:/Windows/System32/wsl.exe"), &["bash".into()]).is_err());
+        }
     }
 
     #[test]
