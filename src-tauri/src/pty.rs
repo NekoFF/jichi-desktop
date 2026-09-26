@@ -207,12 +207,23 @@ mod tests {
                 Box::new(move |_| { let _ = tx2.send(None); }),
             )
             .unwrap();
-        ptys.write(id, "echo jichi-$((6*7)); pwd; exit\n").unwrap();
+        // PowerShell unter Windows, sonst die Shell des Benutzers — die Rechnung
+        // muss in beiden gehen, sonst prüft der Test die Syntax statt der PTY.
+        let befehl = if cfg!(windows) { "echo \"jichi-$(6*7)\"; pwd; exit\r\n" } else { "echo jichi-$((6*7)); pwd; exit\n" };
+        ptys.write(id, befehl).unwrap();
         let mut alles = String::new();
         let ende = std::time::Instant::now() + std::time::Duration::from_secs(20);
         loop {
             match rx.recv_timeout(ende.saturating_duration_since(std::time::Instant::now())) {
-                Ok(Some(s)) => alles.push_str(&s),
+                Ok(Some(s)) => {
+                    // ConPTY fragt beim Start nach der Cursorposition (ESC[6n) und
+                    // wartet auf die Antwort. Im Fenster gibt sie xterm.js; hier
+                    // antwortet der Test wie ein Terminal.
+                    if s.contains("\x1b[6n") {
+                        ptys.write(id, "\x1b[1;1R").unwrap();
+                    }
+                    alles.push_str(&s)
+                }
                 Ok(None) => break,
                 Err(_) => panic!("keine Antwort der Shell: {alles}"),
             }

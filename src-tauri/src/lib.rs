@@ -2252,6 +2252,7 @@ mod tests {
         assert!(parts.len() > 1, "PATH wurde nicht zerlegt: {path}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn which_findet_im_pfad_und_als_pfad() {
         eigene_ablage();
@@ -2263,6 +2264,18 @@ mod tests {
         assert_eq!(which("gibt-es-ganz-sicher-nicht-42"), None);
         // Ein Verzeichnis ist nicht ausführbar, auch wenn es das Bit gesetzt hat.
         assert_eq!(which("/tmp"), None);
+    }
+
+    /// Unter Windows startet die Anwendung `wsl.exe` — genau das muss sie finden,
+    /// mit und ohne Endung.
+    #[cfg(windows)]
+    #[test]
+    fn which_findet_wsl_und_cmd_unter_windows() {
+        eigene_ablage();
+        let klein = |p: Option<PathBuf>| p.map(|p| p.to_string_lossy().to_lowercase());
+        assert!(klein(which("cmd")).is_some_and(|p| p.ends_with("\\cmd.exe")), "{:?}", which("cmd"));
+        assert!(klein(which("wsl.exe")).is_some_and(|p| p.ends_with("\\wsl.exe")), "{:?}", which("wsl.exe"));
+        assert_eq!(which("gibt-es-ganz-sicher-nicht-42"), None);
     }
 
     #[test]
@@ -2383,6 +2396,10 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Nur unter Unix: die Suche unterscheidet ein Programm von einer Datei am
+    /// Ausführbar-Bit, und das gibt es unter Windows nicht. Dort startet die
+    /// Anwendung jichi ohnehin über `wsl.exe`, nicht über diese Suche.
+    #[cfg(unix)]
     #[test]
     fn heimatsuche_findet_das_gebaute_programm() {
         eigene_ablage();
