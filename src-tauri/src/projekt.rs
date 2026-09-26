@@ -41,6 +41,18 @@ pub fn root_of(cwd: &str) -> Result<PathBuf, String> {
     crate::expand_tilde(cwd).canonicalize().map_err(|_| format!("{cwd} ist nicht lesbar"))
 }
 
+/// Ein Pfad so, wie ihn ein gestartetes Programm sehen soll. `canonicalize`
+/// liefert unter Windows `\\?\C:\…` — richtig zum Vergleichen, aber eine Shell
+/// zeigt dann `Microsoft.PowerShell.Core\FileSystem::\\?\C:\…` als Ort an.
+/// Nur der Laufwerksfall wird gekürzt; `\\?\UNC\…` bleibt, wie es ist.
+pub fn fuer_programme(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => p.to_path_buf(),
+    }
+}
+
 /// Ein Pfad im Projekt — vorhanden oder nicht; der Ordner darüber muss im Projekt liegen.
 pub fn inside(root: &Path, rel: &str) -> Result<PathBuf, String> {
     let p = Path::new(rel);
@@ -233,6 +245,13 @@ fn split_csv(line: &str, sep: char) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn programme_sehen_keinen_verbatim_pfad() {
+        assert_eq!(fuer_programme(Path::new(r"\\?\C:\Users\a\p")), PathBuf::from(r"C:\Users\a\p"));
+        assert_eq!(fuer_programme(Path::new(r"\\?\UNC\srv\share")), PathBuf::from(r"\\?\UNC\srv\share"));
+        assert_eq!(fuer_programme(Path::new("/Users/a/p")), PathBuf::from("/Users/a/p"));
+    }
+
     use super::*;
 
     fn projekt(name: &str) -> PathBuf {

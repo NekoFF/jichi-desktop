@@ -15,7 +15,8 @@ use tauri::{AppHandle, Emitter};
 
 struct Sitzung {
     writer: Box<dyn Write + Send>,
-    master: Box<dyn MasterPty + Send>,
+    /// `None`, sobald die Shell beendet ist (Windows: dann wird ConPTY geschlossen).
+    master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
@@ -110,7 +111,7 @@ impl Ptys {
         for a in &args {
             cmd.arg(a);
         }
-        cmd.cwd(&root);
+        cmd.cwd(crate::projekt::fuer_programme(&root));
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("PATH", path_env);
@@ -126,10 +127,24 @@ impl Ptys {
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let id = self.next.fetch_add(1, Ordering::SeqCst) + 1;
-        self.map
-            .lock()
-            .map_err(|_| "Zustand gesperrt")?
-            .insert(id, Arc::new(Mutex::new(Sitzung { writer, master: pair.master, child })));
+        let sitzung = Arc::new(Mutex::new(Sitzung { writer, master: Some(pair.master), child }));
+        self.map.lock().map_err(|_| "Zustand gesperrt")?.insert(id, sitzung.clone());
+
+        // Windows: ConPTY schliesst den Ausgabestrom NICHT, wenn die Shell endet —
+        // der Leser unten wartete ewig, und das Terminal sagte nie „beendet“.
+        // Also auf den Prozess warten und dann die Pseudokonsole schliessen;
+        // das beendet den Strom, und der Leser meldet das Ende wie unter Unix.
+        #[cfg(windows)]
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            let Ok(mut s) = sitzung.lock() else { break };
+            if s.master.is_none() || !matches!(s.child.try_wait(), Ok(None)) {
+                s.master = None;
+                break;
+            }
+        });
+        #[cfg(not(windows))]
+        drop(sitzung);
 
         std::thread::spawn(move || {
             let mut buf = [0u8; 16 * 1024];
@@ -164,6 +179,8 @@ impl Ptys {
         let s = self.get(id)?;
         let s = s.lock().map_err(|_| "Zustand gesperrt")?;
         s.master
+            .as_ref()
+            .ok_or("Terminal ist beendet.")?
             .resize(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())
     }
@@ -174,6 +191,7 @@ impl Ptys {
             if let Ok(mut s) = s.lock() {
                 let _ = s.child.kill();
                 let _ = s.child.wait();
+                s.master = None;
             }
         }
     }
