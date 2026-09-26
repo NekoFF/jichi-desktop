@@ -42,6 +42,7 @@ mod git;
 mod mcp_dokumente;
 mod projekt;
 mod pty;
+mod speech;
 mod terminal;
 
 // ── Zustand ──────────────────────────────────────────────────────────────────
@@ -2017,6 +2018,37 @@ async fn gateway_models() -> Result<GatewayReport, String> {
     blocking(gateway_models_now).await?
 }
 
+/// Diktieren: der Körper ist die Aufnahme selbst (rohe Bytes, kein JSON), das
+/// Format steht im Kopf `x-mime`, das Modell in `x-model`, die Sprache in
+/// `x-language` (leer = das Modell erkennt sie).
+#[tauri::command]
+async fn speech_transcribe(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(audio) = request.body() else {
+        return Err("Die Aufnahme kam nicht als Bytes an.".into());
+    };
+    let audio = audio.clone();
+    let head = |k: &str| request.headers().get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let (mime, model, lang) = (head("x-mime"), head("x-model"), head("x-language"));
+    blocking(move || {
+        let key = secret_read(KEY_ENV).ok_or("Es ist kein API-Schlüssel hinterlegt.")?;
+        let model = if model.is_empty() { speech::DEFAULT_TRANSCRIBE.to_string() } else { model };
+        speech::transcribe(&gateway_base(), &key, &model, &audio, &mime, Some(lang.as_str()).filter(|l| !l.is_empty()))
+    })
+    .await?
+}
+
+/// Vorlesen: Text hinein, mp3 als rohe Bytes zurück (kommt als ArrayBuffer an).
+#[tauri::command]
+async fn speech_speak(text: String, model: Option<String>, voice: Option<String>) -> Result<tauri::ipc::Response, String> {
+    let bytes = blocking(move || {
+        let key = secret_read(KEY_ENV).ok_or("Es ist kein API-Schlüssel hinterlegt.")?;
+        let model = model.filter(|m| !m.trim().is_empty()).unwrap_or_else(|| speech::DEFAULT_SPEECH.to_string());
+        speech::speak(&gateway_base(), &key, &model, &text, voice.as_deref().unwrap_or("alloy"))
+    })
+    .await??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 #[tauri::command]
 async fn read_workspace_file(cwd: String, path: String) -> Result<Option<String>, String> {
     blocking(move || read_workspace_file_in(&expand_tilde(&cwd), &path)).await?
@@ -2111,6 +2143,8 @@ pub fn run() {
             acp_stop,
             acp_running,
             gateway_models,
+            speech_transcribe,
+            speech_speak,
             read_attachment,
             documents_status,
             documents_set,

@@ -301,6 +301,17 @@ export interface Transport {
   /** Die freien Modelle (`jlu/…`) am Gateway. Kostet nichts, ist eine Liste. */
   gatewayModels(): Promise<GatewayReport>;
 
+  // ── Sprache ────────────────────────────────────────────────────────────────
+
+  /**
+   * Eine Aufnahme als Text, über `/audio/transcriptions` des Gateways. Der
+   * Schlüssel bleibt in Rust; Rust nimmt nur `jlu/…`-Modelle an. `language`
+   * leer: das Modell erkennt die Sprache selbst.
+   */
+  transcribe(audio: Uint8Array, mime: string, model: string, language?: string): Promise<string>;
+  /** Text als Ton (mp3), über `/audio/speech` des Gateways. */
+  speak(text: string, model: string, voice?: string): Promise<ArrayBuffer>;
+
   // ── Vorschau ───────────────────────────────────────────────────────────────
 
   /** Heutiger Inhalt einer Datei im Projekt, `null` wenn es sie noch nicht gibt. */
@@ -450,6 +461,16 @@ export const tauriTransport: Transport = {
   },
 
   gatewayModels: () => invoke<GatewayReport>("gateway_models").catch(fail),
+
+  // Die Aufnahme geht als rohe Bytes, nicht als JSON-Zahlenliste: eine Minute
+  // Sprache sind rund ein Megabyte.
+  transcribe: (audio, mime, model, language) =>
+    invoke<string>("speech_transcribe", audio, {
+      headers: { "x-mime": mime, "x-model": model, "x-language": language ?? "" },
+    }).catch(fail),
+
+  speak: (text, model, voice) =>
+    invoke<ArrayBuffer>("speech_speak", { text, model, voice: voice ?? null }).catch(fail),
 
   readWorkspaceFile: (cwd, path) =>
     invoke<string | null>("read_workspace_file", { cwd, path }).catch(fail),

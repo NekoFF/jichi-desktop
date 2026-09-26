@@ -160,6 +160,8 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.setModel(model \| null)` | Modell wählen (`--model`). Neustart, der offene Chat wird wieder geladen. |
 | `agent.setMode("chat" \| "plan" \| "auto")` | Arbeitsweise (`--plan`/`--auto`). jichi speichert den Modus in der Sitzung, darum beginnt ein Wechsel einen neuen Chat. `auto` wird nie gespeichert. |
 | `agent.refreshGateway()` | Freie Modelle (`jlu/…`) am Gateway abfragen → `snapshot.gateway`. |
+| `agent.transcribe(blob)` | Aufnahme → Text über `/audio/transcriptions` (Standard `jlu/whisper-1`). Der Text ist für das Eingabefeld, nicht direkt für jichi. |
+| `agent.speak(markdown)` | Antwort vorlesen: Markdown → Sprechtext (`sprechbar`), zurück kommt mp3 über `/audio/speech` (Standard `jlu/tts-1-hd`). |
 | `agent.readProjectFile(path)` | Heutiger Inhalt einer Datei im Projekt — für die Diff-Vorschau. |
 | `agent.openLink(url)` | http(s)-Verweis im Browser des Systems öffnen. |
 | `agent.pickAttachment()` | Datei für den nächsten Zug wählen; PDF, Word, Excel … kommen als Text. |
@@ -248,7 +250,7 @@ Geprüft wird am **Rückgabewert**, nicht an der Ausgabe.
 
 ## 8. Was die Rust-Seite löst
 
-Drei Dinge, die eine Oberfläche sonst zu spüren bekommt:
+Vier Dinge, die eine Oberfläche sonst zu spüren bekommt:
 
 1. **PATH** — eine aus dem Dock gestartete Anwendung erbt kein
    Shell-Environment. Der PATH des Kindes wird ergänzt, und der Agent wird in den
@@ -259,6 +261,12 @@ Drei Dinge, die eine Oberfläche sonst zu spüren bekommt:
 3. **Generationen** — jedes Kind hat eine Nummer. Nach einem Neustart können
    gepufferte Zeilen des alten Prozesses nachkommen; sie werden verworfen,
    statt der neuen Sitzung zugeschrieben zu werden.
+
+4. **Sprache** — Diktat und Vorlesen gehen über Rust ans Gateway; der
+   Schlüssel verlässt Rust nicht, die Aufnahme kommt als rohe Bytes über IPC.
+   Rust nimmt nur `jlu/…`-Modelle an. Der eingebaute Browser des Seitenpanels
+   bekommt `getUserMedia`/`getDisplayMedia` gesperrt, denn WKWebView gewährt
+   Aufnahme-Anfragen ohne eigene Rückfrage.
 
 Und eine Eigenheit der Plattform: unter Windows gibt es kein natives jichi
 („not supported by design“), dort läuft der Start über `wsl.exe`. Die

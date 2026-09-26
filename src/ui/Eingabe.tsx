@@ -34,6 +34,7 @@ import {
 
 import { agent, shortPath, type AgentMode, type Snapshot } from "../core/index.ts";
 import { zurEingabe } from "./panel/store.ts";
+import { kannAufnehmen, Mikrofon } from "./Sprache.tsx";
 import type { FileAttachment } from "../core/transport.ts";
 
 const nachricht = (ursache: unknown) => (ursache instanceof Error ? ursache.message : String(ursache));
@@ -522,6 +523,23 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       });
   }
 
+  /** Diktierter Text an die Schreibmarke — markierter Text wird ersetzt. */
+  function diktiert(t: string) {
+    const el = feld.current;
+    const von = el?.selectionStart ?? text.length;
+    const bis = el?.selectionEnd ?? text.length;
+    const davor = text.slice(0, von);
+    const danach = text.slice(bis);
+    const luecke = davor && !/\s$/.test(davor) ? " " : "";
+    const neu = `${davor}${luecke}${t}${danach && !/^\s/.test(danach) ? " " : ""}${danach}`;
+    setText(neu);
+    const pos = davor.length + luecke.length + t.length;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(pos, pos);
+    });
+  }
+
   function auftrag(t: string) {
     setText((alt) => (alt.trim() ? `${alt.trimEnd()}\n${t}` : t));
     requestAnimationFrame(() => {
@@ -615,6 +633,9 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
                 }
               }}
             />
+            {snap.readiness?.keyStored && kannAufnehmen() && (
+              <Mikrofon einfuegen={diktiert} fehler={setFehler} aus={!snap.canSend && !arbeitet} />
+            )}
             {arbeitet ? (
               <button className="senden stopp" onClick={() => void agent.cancel()} aria-label="Antwort abbrechen" title="Abbrechen">
                 <Square size={11} fill="currentColor" />

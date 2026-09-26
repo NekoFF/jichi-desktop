@@ -16,6 +16,7 @@
  * Zeilen des Agenten verloren, und genau in ihnen steht, was schiefging.
  */
 
+import { speechModel, sprechbar } from "./speech.ts";
 import { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 import {
   clientCapabilities,
@@ -243,6 +244,28 @@ export class Agent {
         },
       });
     }
+  }
+
+  // ── Sprache ────────────────────────────────────────────────────────────────
+
+  /**
+   * Eine Aufnahme als Text — für das Eingabefeld, nicht für jichi: der Text
+   * wird eingefügt und erst mit „Senden“ zur Frage. Leere Aufnahmen und
+   * Stille ergeben einen leeren Text.
+   */
+  async transcribe(audio: Blob): Promise<string> {
+    const bytes = new Uint8Array(await audio.arrayBuffer());
+    if (!bytes.length) return "";
+    const model = speechModel(this.#snapshot.gateway?.models, "transcribe");
+    const text = await this.#transport.transcribe(bytes, audio.type || "audio/mp4", model);
+    return text.trim();
+  }
+
+  /** Eine Antwort vorlesen: Markdown wird zu Sprechtext, zurück kommt mp3. */
+  async speak(markdown: string): Promise<ArrayBuffer> {
+    const text = sprechbar(markdown);
+    if (!text) throw new Error("Es gibt nichts vorzulesen.");
+    return this.#transport.speak(text, speechModel(this.#snapshot.gateway?.models, "speech"));
   }
 
   // ── Modell und Modus ───────────────────────────────────────────────────────

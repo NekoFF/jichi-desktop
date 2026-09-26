@@ -16,6 +16,7 @@ import { Agent } from "./agent.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { applyPlan, planOf, producedFiles, visible } from "./preview.ts";
 import { transcriptMarkdown } from "./export.ts";
+import { DEFAULT_SPEECH, DEFAULT_TRANSCRIBE, SPEAK_MAX, speechModel, sprechbar } from "./speech.ts";
 import type {
   ConfigReport,
   DoctorReport,
@@ -179,6 +180,16 @@ class FakeAgent implements Transport {
   };
   async gatewayModels() {
     return this.gatewayAntwort;
+  }
+  diktiert: Array<{ bytes: number; mime: string; model: string }> = [];
+  async transcribe(audio: Uint8Array, mime: string, model: string) {
+    this.diktiert.push({ bytes: audio.length, mime, model });
+    return "  diktierter Text ";
+  }
+  vorgelesen: Array<{ text: string; model: string }> = [];
+  async speak(text: string, model: string) {
+    this.vorgelesen.push({ text, model });
+    return new Uint8Array([0xff, 0xf3]).buffer;
   }
   dateien = new Map<string, string>([["/tmp/projekt/a.txt", "eins\nzwei\n"]]);
   async readWorkspaceFile(cwd: string, path: string) {
@@ -1027,6 +1038,36 @@ check("MCP-Server werden gelistet", (await befehl.mcpServers())[0]?.builtin === 
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");
+
+// ── Sprache ──────────────────────────────────────────────────────────────────
+
+{
+  const leer = await befehl.transcribe(new Blob([]));
+  check("eine leere Aufnahme geht gar nicht erst ans Gateway", leer === "" && term.diktiert.length === 0);
+  const text = await befehl.transcribe(new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm;codecs=opus" }));
+  const d = term.diktiert[0];
+  check("Diktat: Bytes, Format und freies Modell kommen an, der Text ist getrimmt",
+    text === "diktierter Text" && d?.bytes === 3 && d.mime === "audio/webm;codecs=opus" && d.model.startsWith("jlu/"), JSON.stringify(d));
+  check("ohne Format gilt audio/mp4 (so nimmt WKWebView auf)",
+    (await befehl.transcribe(new Blob([new Uint8Array([9])]))) === "diktierter Text" && term.diktiert[1]?.mime === "audio/mp4");
+
+  const ton = await befehl.speak("## Titel\n\nSiehe [die Doku](https://x.de) und `npm run check`.\n\n```ts\nconst x = 1;\n```\n\n**Fertig.**");
+  const v = term.vorgelesen[0];
+  check("Vorlesen: Markdown wird Sprechtext, Code wird nicht buchstabiert",
+    ton.byteLength === 2 && v?.text === "Titel\n\nSiehe die Doku und npm run check.\n\n(Codeblock ausgelassen.)\n\nFertig." && v.model === DEFAULT_SPEECH, JSON.stringify(v?.text));
+  await befehl.speak("```\nnur code\n```");
+  check("ein reiner Codeblock wird angesagt statt verschluckt", term.vorgelesen[1]?.text === "(Codeblock ausgelassen.)");
+  let nichts = "";
+  await befehl.speak("![x](y.png)").catch((e: Error) => (nichts = e.message));
+  check("nur ein Bild: nichts Vorlesbares, und es geht nichts ans Gateway",
+    nichts === "Es gibt nichts vorzulesen." && term.vorgelesen.length === 2);
+  check("langer Text endet an einem Satzende unter der Grenze",
+    (() => { const t = sprechbar("Ein Satz. ".repeat(900)); return t.length <= SPEAK_MAX && t.endsWith("."); })());
+  check("Modellwahl: das bekannte vor anderen, sonst das erste passende, sonst der Standard",
+    speechModel([{ id: "jlu/a-tts", kind: "speech" }, { id: DEFAULT_SPEECH, kind: "speech" }], "speech") === DEFAULT_SPEECH &&
+    speechModel([{ id: "jlu/whisper-large", kind: "transcribe" }], "transcribe") === "jlu/whisper-large" &&
+    speechModel(undefined, "transcribe") === DEFAULT_TRANSCRIBE);
+}
 
 // ── Ergebnis ─────────────────────────────────────────────────────────────────
 

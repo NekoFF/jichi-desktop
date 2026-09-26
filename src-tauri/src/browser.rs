@@ -56,6 +56,18 @@ pub fn adresse(eingabe: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// Kein Mikrofon, keine Kamera, kein Bildschirm für fremde Seiten. WKWebView
+/// (wry) gewährt Aufnahme-Anfragen ohne eigene Rückfrage; hat das System der
+/// Anwendung das Mikrofon einmal erlaubt — fürs Diktieren —, hörte sonst jede
+/// Seite in diesem Browser still mit. Läuft vor den Skripten der Seite, in
+/// jedem Rahmen, und lässt sich nicht zurückbiegen (nicht konfigurierbar).
+const OHNE_AUFNAHME: &str = r#"(() => { try {
+  const nein = () => Promise.reject(new DOMException("Mikrofon, Kamera und Bildschirm sind im eingebauten Browser gesperrt.", "NotAllowedError"));
+  const md = window.MediaDevices && window.MediaDevices.prototype;
+  if (md) for (const k of ["getUserMedia", "getDisplayMedia"]) Object.defineProperty(md, k, { value: nein, writable: false, configurable: false });
+  for (const k of ["getUserMedia", "webkitGetUserMedia"]) if (k in navigator) Object.defineProperty(navigator, k, { value: undefined, writable: false, configurable: false });
+} catch (_) {} })();"#;
+
 pub fn open(app: &AppHandle, id: &str, url: &str, x: f64, y: f64, w: f64, h: f64) -> Result<String, String> {
     let label = label(id)?;
     let url = adresse(url)?;
@@ -69,6 +81,7 @@ pub fn open(app: &AppHandle, id: &str, url: &str, x: f64, y: f64, w: f64, h: f64
     let (id1, id2, id3) = (d.clone(), d.clone(), d.clone());
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url.clone()))
         .data_directory(dir)
+        .initialization_script_for_all_frames(OHNE_AUFNAHME)
         .on_navigation(move |u| {
             let ok = erlaubt(u);
             if ok {

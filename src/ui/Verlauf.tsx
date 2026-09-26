@@ -15,6 +15,7 @@ import {
   Wrench,
   Pencil,
 } from "lucide-react";
+import { Vorlesen } from "./Sprache.tsx";
 import {
   agent,
   permissionTone,
@@ -121,8 +122,16 @@ const Werkzeug = memo(function Werkzeug({ eintrag, terminal }: { eintrag: ToolIt
   );
 });
 
-/** Unter einer fertigen Antwort: kopieren, noch einmal fragen, wann. */
-function Aktionen({ text, frage, at, canSend }: { text: string; frage: string | null; at?: number; canSend: boolean }) {
+/** Unter einer fertigen Antwort: kopieren, vorlesen, noch einmal fragen, wann. */
+function Aktionen({ id, text, frage, at, canSend, sprechen }: {
+  id: string;
+  text: string;
+  frage: string | null;
+  at?: number;
+  canSend: boolean;
+  /** Vorlesen anbieten — nur mit Schlüssel, denn es geht übers Gateway. */
+  sprechen: boolean;
+}) {
   const [kopiert, setKopiert] = useState(false);
   const [, tick] = useState(0);
   // „vor 3 Min.“ soll nicht stehen bleiben.
@@ -147,6 +156,7 @@ function Aktionen({ text, frage, at, canSend }: { text: string; frage: string | 
       <button type="button" onClick={() => void kopieren()} aria-label="Antwort kopieren" title="Kopieren">
         {kopiert ? <Check size={14} /> : <Copy size={14} />}
       </button>
+      {sprechen && <Vorlesen id={id} text={text} />}
       {frage && (
         <button
           type="button"
@@ -399,7 +409,7 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
                     .filter((f) => dateien.get(f) === e.id)
                     .map((f) => <Dateikarte key={f} path={f} version={`${e.id}:${e.status}`} />)}
                 {ende && e.kind === "message" && (
-                  <Aktionen text={e.text} frage={frageVon.get(e.id) ?? null} at={e.at} canSend={snap.canSend} />
+                  <Aktionen id={e.id} text={e.text} frage={frageVon.get(e.id) ?? null} at={e.at} canSend={snap.canSend} sprechen={!!snap.readiness?.keyStored} />
                 )}
               </div>
             );

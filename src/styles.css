@@ -395,6 +395,27 @@ main.haupt {
 .senden.ruhig { background: transparent; color: var(--color-outline); cursor: default; animation: none; }
 .senden.stopp { background: var(--color-on-surface); color: var(--color-surface-container-lowest); }
 .senden.stopp:hover { background: color-mix(in srgb, var(--color-on-surface) 85%, transparent); }
+
+/* Diktieren: ein ruhiges Mikrofon neben „Senden“; während der Aufnahme eine
+   Pille mit pulsierendem Punkt und der Zeit, beim Erkennen ein Kreisel. */
+.mikrofon {
+  height: 34px; min-width: 34px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 17px; color: var(--color-on-surface-variant);
+  transition: background .12s ease, color .12s ease;
+}
+.mikrofon:hover:not(:disabled) { background: var(--color-surface-container-high); color: var(--color-on-surface); }
+.mikrofon:disabled { opacity: .4; cursor: default; }
+.mikrofon.nimmt-auf {
+  padding: 0 11px; color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  animation: auftauchen .14s ease-out;
+}
+.mikrofon.nimmt-auf:hover { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
+.mikrofon-punkt { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: mikrofon-puls 1.2s ease-in-out infinite; }
+.mikrofon-zeit { font: 500 12px var(--font-mono); font-variant-numeric: tabular-nums; }
+.mikrofon.erkennt { color: var(--color-primary); }
+@keyframes mikrofon-puls { 50% { opacity: .25; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .mikrofon-punkt { animation: none; } }
 @keyframes auftauchen { from { transform: scale(.7); opacity: 0; } }
 
 /* „+“ und seine Liste */
@@ -929,6 +950,8 @@ main.haupt {
 .aktionen button:hover:not(:disabled) { background: var(--color-surface-container-high); color: var(--color-on-surface); }
 .aktionen button:disabled { opacity: .4; cursor: default; }
 .aktionen time { margin-left: 6px; }
+.aktionen .vorlesen.aktiv { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.aktionen-fehler { margin-left: 6px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--color-error); }
 
 .nachricht-dateien { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
 .nachricht-dateien span {
