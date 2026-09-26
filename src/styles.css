@@ -85,9 +85,9 @@ button { cursor: pointer; border: 0; background: none; padding: 0; }
 .app.layout-floating > main.haupt { background: var(--color-surface-container-low); }
 .app.layout-floating .kopf { border-bottom-color: transparent; }
 .app.layout-floating .seite-fuss { border-top-color: var(--color-outline-variant); }
-/* Das Betriebssystem zeichnet die äußere Windows-Ecke selbst eckig. */
-html:not(.mac) .app.layout-floating { padding: 0; gap: 0; }
-html:not(.mac) .app.layout-floating .seite { border-radius: 0; border-width: 0 1px 0 0; box-shadow: none; }
+/* Auf allen Systemen gleich: Freistehend ist freistehend. Früher wurde es
+   ausserhalb von macOS flach gezeichnet (eckiger Fensterrand) — dann sahen
+   beide Layouts gleich aus, und die Wahl in den Einstellungen tat nichts. */
 
 .seite {
   display: flex; flex-direction: column; min-width: 0;
@@ -1027,7 +1027,6 @@ main.haupt {
   border: 1px solid var(--color-outline-variant); border-radius: 20px; overflow: hidden;
   box-shadow: var(--shadow-card);
 }
-html:not(.mac) .app.layout-floating .panel { border-radius: 0; border-width: 0 0 0 1px; box-shadow: none; }
 .panel.zieht, .panel.zieht * { user-select: none; cursor: col-resize; }
 .panel-griff {
   position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; z-index: 5; cursor: col-resize;
