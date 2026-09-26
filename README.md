@@ -26,6 +26,22 @@ Modell und Agentenschleife sind jichi; hier liegen Fenster, Protokoll und Zustan
 - Node.js 24, Rust (stable), dazu die [Tauri-Voraussetzungen](https://v2.tauri.app/start/prerequisites/)
   der Plattform
 
+Was auf den einzelnen Plattformen auffiel (2026-09-26):
+
+- **Node der Linux-Distribution reicht nicht.** `npm run check` startet
+  `node src/core/selftest.ts`; das Node-Paket von Ubuntu 26.04 (22.22) ist ohne
+  eingebautes TypeScript-Entfernen gebaut. Node 24 von nodejs.org nehmen.
+- **Windows: `npm install` scheitert am Design System.** Dessen `build`-Skript ruft
+  `cp` auf, das `cmd.exe` nicht kennt. Bis das dort behoben ist:
+  `npm ci --script-shell "C:\Program Files\Git\bin\bash.exe"`.
+- **Windows: Smart App Control** blockiert unsignierte, frisch gebaute Programme —
+  schon die Build-Skripte von Rust (`os error 4551`) und ebenso die fertige
+  Anwendung. Zum Bauen muss es aus sein; für eine Verteilung braucht die
+  Anwendung eine Code-Signatur.
+- **Windows: jichi läuft in WSL.** Die Anwendung startet `wsl.exe jichi --acp`;
+  jichi wird dafür in der Standard-Distribution gebaut und nach `/usr/local/bin`
+  gelegt (`make WERROR=1` baut unter Ubuntu ohne Änderung).
+
 ## Befehle
 
 ```sh
