@@ -2255,7 +2255,10 @@ mod tests {
     #[test]
     fn which_findet_im_pfad_und_als_pfad() {
         eigene_ablage();
-        assert_eq!(which("sh"), Some(PathBuf::from("/bin/sh")));
+        // Welches `sh` zuerst kommt, hängt vom PATH ab: macOS findet /bin/sh,
+        // Ubuntu (zusammengelegtes /usr) zuerst /usr/bin/sh — dieselbe Datei.
+        let sh = which("sh").expect("sh im PATH");
+        assert_eq!(sh.canonicalize().unwrap(), PathBuf::from("/bin/sh").canonicalize().unwrap(), "{}", sh.display());
         assert_eq!(which("/bin/sh"), Some(PathBuf::from("/bin/sh")));
         assert_eq!(which("gibt-es-ganz-sicher-nicht-42"), None);
         // Ein Verzeichnis ist nicht ausführbar, auch wenn es das Bit gesetzt hat.
