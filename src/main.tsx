@@ -27,8 +27,10 @@ import {
   agent,
   applyAppearance,
   readPreferences,
+  setSprache,
   shortPath,
   statusLabel,
+  t,
   watchAppearance,
   writePreferences,
   type Preferences,
@@ -42,13 +44,14 @@ import { Seitenleiste } from "./ui/Seitenleiste.tsx";
 import { Leer, Verlauf } from "./ui/Verlauf.tsx";
 import { Panel, usePanel } from "./ui/panel/Panel.tsx";
 import { panel } from "./ui/panel/store.ts";
-import { IS_MAC, kurzTaste, useAgent } from "./ui/util.ts";
+import { IS_MAC, kurzTaste, useAgent, useSprache } from "./ui/util.ts";
 import "./styles.css";
 
 // ── Anwendung ────────────────────────────────────────────────────────────────
 
 function App() {
   const snap = useAgent();
+  useSprache();
   const [prefs, setPrefsState] = useState<Preferences>(() => readPreferences());
   const [einstellungen, setEinstellungen] = useState(false);
   const [tastenOffen, setTastenOffen] = useState(false);
@@ -57,6 +60,7 @@ function App() {
     setPrefsState(next);
     writePreferences(next);
     applyAppearance(next.appearance);
+    setSprache(next.language);
   }, []);
 
   useEffect(() => {
@@ -134,17 +138,17 @@ function App() {
               className="knopf-klein"
               disabled={!snap.canSwitch}
               onClick={() => void agent.pickWorkspace().catch(() => {})}
-              title={snap.hasProject && snap.cwd ? snap.cwd : "Projektordner wählen"}
+              title={snap.hasProject && snap.cwd ? snap.cwd : t("Projektordner wählen")}
             >
               <FolderOpen size={13} />
-              <span className="pfad">{snap.hasProject ? shortPath(snap.cwd, 34) : "Projekt öffnen"}</span>
+              <span className="pfad">{snap.hasProject ? shortPath(snap.cwd, 34) : t("Projekt öffnen")}</span>
             </button>
-            <div className="kopf-ansichten" role="group" aria-label="Seitenleiste">
-              <button className="knopf-klein knopf-symbol" onClick={() => panel.dateien()} aria-label="Dateien" title={`Dateien (${kurzTaste("⇧E")})`}><FolderTree size={14} /></button>
-              <button className="knopf-klein knopf-symbol" onClick={() => panel.aenderungen()} aria-label="Änderungen" title={`Änderungen (${kurzTaste("⇧D")})`}><GitCompare size={14} /></button>
-              <button className="knopf-klein knopf-symbol" onClick={() => panel.terminal()} aria-label="Terminal" title="Terminal (Strg+`)"><SquareTerminal size={14} /></button>
+            <div className="kopf-ansichten" role="group" aria-label={t("Seitenleiste")}>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.dateien()} aria-label={t("Dateien")} title={`${t("Dateien")} (${kurzTaste("⇧E")})`}><FolderTree size={14} /></button>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.aenderungen()} aria-label={t("Änderungen")} title={`${t("Änderungen")} (${kurzTaste("⇧D")})`}><GitCompare size={14} /></button>
+              <button className="knopf-klein knopf-symbol" onClick={() => panel.terminal()} aria-label="Terminal" title={`Terminal (${t("Strg")}+\`)`}><SquareTerminal size={14} /></button>
               <button className="knopf-klein knopf-symbol" onClick={() => panel.browser()} aria-label="Browser" title={`Browser (${kurzTaste("⇧B")})`}><Globe size={14} /></button>
-              <button className={`knopf-klein knopf-symbol${p.open ? " an" : ""}`} onClick={() => panel.toggle()} aria-label="Seitenleiste ein/aus" aria-pressed={p.open} title="Seitenleiste"><PanelRight size={14} /></button>
+              <button className={`knopf-klein knopf-symbol${p.open ? " an" : ""}`} onClick={() => panel.toggle()} aria-label={t("Seitenleiste ein/aus")} aria-pressed={p.open} title={t("Seitenleiste")}><PanelRight size={14} /></button>
             </div>
             <button
               className="knopf-klein knopf-symbol"
@@ -154,7 +158,7 @@ function App() {
                   appearance: prefs.appearance === "dark" ? "light" : "dark",
                 })
               }
-              aria-label="Erscheinungsbild wechseln"
+              aria-label={t("Erscheinungsbild wechseln")}
             >
               {prefs.appearance === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             </button>
@@ -162,7 +166,7 @@ function App() {
         </header>
 
         {snap.transcript.length === 0 && !snap.permission ? (
-          <Leer snap={snap} name={prefs.name} frage={(t) => void agent.send(t).catch(() => {})} />
+          <Leer snap={snap} name={prefs.name} frage={(text) => void agent.send(text).catch(() => {})} />
         ) : (
           <Verlauf snap={snap} />
         )}
@@ -186,6 +190,9 @@ function App() {
     </>
   );
 }
+
+// Die Sprache steht vor dem ersten Zeichnen fest, nicht erst danach.
+setSprache(readPreferences().language);
 
 // Nur auf macOS schwebt die Ampel über dem Inhalt und braucht Platz.
 if (IS_MAC) document.documentElement.classList.add("mac");

@@ -6,6 +6,9 @@
 import { memo, useMemo } from "react";
 import { diffLines } from "diff";
 
+import { t } from "../core/index.ts";
+import { useSprache } from "./util.ts";
+
 /** So viele unveränderte Zeilen bleiben um eine Änderung herum stehen. */
 const CONTEXT = 3;
 
@@ -74,23 +77,24 @@ export const Diff = memo(function Diff({
   after: string;
   note?: string;
 }) {
+  useSprache();
   const { rows, added, removed } = useMemo(() => diffRows(before ?? "", after), [before, after]);
   return (
     <div className="diff">
       <div className="diff-kopf">
         <span className="diff-pfad">{path}</span>
-        {before === null && <span className="diff-neu">neue Datei</span>}
+        {before === null && <span className="diff-neu">{t("neue Datei")}</span>}
         <span className="diff-zahl">
           <span className="plus">+{added}</span> <span className="minus">−{removed}</span>
         </span>
       </div>
       {note && <div className="diff-hinweis">{note}</div>}
-      <div className="diff-zeilen" role="table" aria-label={`Änderungen an ${path}`}>
-        {rows.length === 0 && <div className="diff-leer">keine Änderung</div>}
+      <div className="diff-zeilen" role="table" aria-label={t("Änderungen an {path}", { path })}>
+        {rows.length === 0 && <div className="diff-leer">{t("keine Änderung")}</div>}
         {rows.map((z, i) =>
           z.art === "luecke" ? (
             <div key={i} className="diff-luecke">
-              … {z.anzahl} unveränderte {z.anzahl === 1 ? "Zeile" : "Zeilen"}
+              {z.anzahl === 1 ? t("… 1 unveränderte Zeile") : t("… {n} unveränderte Zeilen", { n: z.anzahl })}
             </div>
           ) : (
             <div key={i} className={`diff-zeile ${z.art}`} role="row">

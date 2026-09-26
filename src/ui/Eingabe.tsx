@@ -32,7 +32,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { agent, shortPath, type AgentMode, type Snapshot } from "../core/index.ts";
+import { agent, shortPath, t, type AgentMode, type Snapshot } from "../core/index.ts";
 import { zurEingabe } from "./panel/store.ts";
 import { kannAufnehmen, Mikrofon } from "./Sprache.tsx";
 import type { FileAttachment } from "../core/transport.ts";
@@ -98,15 +98,15 @@ interface Bild {
 function alsBild(datei: File): Promise<Bild> {
   return new Promise((resolve, reject) => {
     if (!/^image\/(png|jpeg|gif|webp)$/.test(datei.type)) {
-      reject(new Error("Nur PNG, JPEG, GIF oder WebP."));
+      reject(new Error(t("Nur PNG, JPEG, GIF oder WebP.")));
       return;
     }
     if (datei.size > MAX_BILD_BYTES) {
-      reject(new Error("Das Bild ist größer als 5 MB."));
+      reject(new Error(t("Das Bild ist größer als 5 MB.")));
       return;
     }
     const leser = new FileReader();
-    leser.onerror = () => reject(new Error("Das Bild ließ sich nicht lesen."));
+    leser.onerror = () => reject(new Error(t("Das Bild ließ sich nicht lesen.")));
     leser.onload = () => {
       const url = String(leser.result);
       resolve({ id: `${Date.now()}-${Math.random()}`, url, data: url.slice(url.indexOf(",") + 1), mimeType: datei.type });
@@ -117,12 +117,13 @@ function alsBild(datei: File): Promise<Bild> {
 
 // ── Das Menü hinter „+“ ──────────────────────────────────────────────────────
 
-const AUFTRAEGE: Array<{ icon: ReactNode; titel: string; text: string; dokumente?: boolean }> = [
-  { icon: <FileSpreadsheet size={15} />, titel: "Bericht als Word", text: "Fasse den Stand dieses Projekts als Bericht zusammen und speichere ihn als bericht.docx.", dokumente: true },
-  { icon: <FileText size={15} />, titel: "Projekt erklären", text: "Erklär mir den Aufbau dieses Projekts und die wichtigsten Teile." },
-  { icon: <Terminal size={15} />, titel: "Tests ausführen", text: "Führe die Tests aus und fasse zusammen, was fehlschlägt." },
-  { icon: <GitCompare size={15} />, titel: "Änderungen prüfen", text: "Sieh dir die noch nicht committeten Änderungen an (git diff) und prüfe sie auf Fehler." },
-  { icon: <Sparkles size={15} />, titel: "Commit-Nachricht", text: "Schlage eine Commit-Nachricht für die aktuellen Änderungen vor." },
+/** Zur Zeit des Zeichnens gebaut, damit die Texte der aktuellen Sprache folgen. */
+const auftraege = (): Array<{ icon: ReactNode; titel: string; text: string; dokumente?: boolean }> => [
+  { icon: <FileSpreadsheet size={15} />, titel: t("Bericht als Word"), text: t("Fasse den Stand dieses Projekts als Bericht zusammen und speichere ihn als bericht.docx."), dokumente: true },
+  { icon: <FileText size={15} />, titel: t("Projekt erklären"), text: t("Erklär mir den Aufbau dieses Projekts und die wichtigsten Teile.") },
+  { icon: <Terminal size={15} />, titel: t("Tests ausführen"), text: t("Führe die Tests aus und fasse zusammen, was fehlschlägt.") },
+  { icon: <GitCompare size={15} />, titel: t("Änderungen prüfen"), text: t("Sieh dir die noch nicht committeten Änderungen an (git diff) und prüfe sie auf Fehler.") },
+  { icon: <Sparkles size={15} />, titel: t("Commit-Nachricht"), text: t("Schlage eine Commit-Nachricht für die aktuellen Änderungen vor.") },
 ];
 
 function PlusMenue({
@@ -150,7 +151,7 @@ function PlusMenue({
       <button
         type="button"
         className={`plus-knopf${offen ? " offen" : ""}`}
-        aria-label="Hinzufügen"
+        aria-label={t("Hinzufügen")}
         aria-haspopup="menu"
         aria-expanded={offen}
         onClick={() => setOffen((o) => !o)}
@@ -159,43 +160,43 @@ function PlusMenue({
       </button>
       {offen && (
         <div className="menue plus-menue" role="menu">
-          <div className="menue-gruppe">Hinzufügen</div>
+          <div className="menue-gruppe">{t("Hinzufügen")}</div>
           <Menuepunkt
             icon={<ImagePlus size={15} />}
-            titel="Bilder"
-            text={snap.canAttachImages ? "einfügen, ziehen oder wählen" : "das Modell liest keine Bilder"}
+            titel={t("Bilder")}
+            text={snap.canAttachImages ? t("einfügen, ziehen oder wählen") : t("das Modell liest keine Bilder")}
             disabled={!snap.canAttachImages}
             onClick={tun(bildWaehlen)}
           />
           <Menuepunkt
             icon={<Paperclip size={15} />}
-            titel="Datei"
-            text="PDF, Word, Excel oder Text als Kontext"
+            titel={t("Datei")}
+            text={t("PDF, Word, Excel oder Text als Kontext")}
             onClick={tun(dateiAnhaengen)}
           />
           <Menuepunkt
             icon={<FolderOpen size={15} />}
-            titel={snap.hasProject ? "Anderes Projekt" : "Projekt öffnen"}
-            text={snap.hasProject ? shortPath(snap.cwd, 28) : "Ordner wählen"}
+            titel={snap.hasProject ? t("Anderes Projekt") : t("Projekt öffnen")}
+            text={snap.hasProject ? shortPath(snap.cwd, 28) : t("Ordner wählen")}
             disabled={!snap.canSwitch}
             onClick={tun(() => void agent.pickWorkspace().catch(() => {}))}
           />
           {snap.documents && !snap.documents.enabled && !snap.documents.problem && (
             <Menuepunkt
               icon={<FileSpreadsheet size={15} />}
-              titel="Dokumente einschalten"
-              text="jichi liest und erstellt PDF, Word, Excel"
+              titel={t("Dokumente einschalten")}
+              text={t("jichi liest und erstellt PDF, Word, Excel")}
               disabled={!snap.canSwitch}
               onClick={tun(() => void agent.setDocuments(true).catch(() => {}))}
             />
           )}
-          <div className="menue-gruppe">Schnellaufträge</div>
-          {AUFTRAEGE.filter((a) => !a.dokumente || snap.documents?.enabled).map((a) => (
+          <div className="menue-gruppe">{t("Schnellaufträge")}</div>
+          {auftraege().filter((a) => !a.dokumente || snap.documents?.enabled).map((a) => (
             <Menuepunkt
               key={a.titel}
               icon={a.icon}
               titel={a.titel}
-              text={snap.hasProject ? undefined : "erst ein Projekt öffnen"}
+              text={snap.hasProject ? undefined : t("erst ein Projekt öffnen")}
               disabled={!snap.hasProject}
               onClick={tun(() => auftrag(a.text))}
             />
@@ -208,10 +209,11 @@ function PlusMenue({
 
 // ── Arbeitsweise (links) ─────────────────────────────────────────────────────
 
-const MODI: Array<{ id: AgentMode; label: string; titel: string; icon: ReactNode }> = [
-  { id: "chat", label: "Chat", titel: "fragt vor jeder Änderung", icon: <MessagesSquare size={13} /> },
-  { id: "plan", label: "Plan", titel: "liest und plant, ändert nichts", icon: <ListChecks size={13} /> },
-  { id: "auto", label: "Auto", titel: "ändert und führt aus, ohne zu fragen", icon: <Zap size={13} /> },
+/** Zur Zeit des Zeichnens gebaut, damit die Texte der aktuellen Sprache folgen. */
+const modi = (): Array<{ id: AgentMode; label: string; titel: string; icon: ReactNode }> => [
+  { id: "chat", label: "Chat", titel: t("fragt vor jeder Änderung"), icon: <MessagesSquare size={13} /> },
+  { id: "plan", label: "Plan", titel: t("liest und plant, ändert nichts"), icon: <ListChecks size={13} /> },
+  { id: "auto", label: "Auto", titel: t("ändert und führt aus, ohne zu fragen"), icon: <Zap size={13} /> },
 ];
 
 function Modus({ snap, fehler }: { snap: Snapshot; fehler: (text: string | null) => void }) {
@@ -231,8 +233,8 @@ function Modus({ snap, fehler }: { snap: Snapshot; fehler: (text: string | null)
 
   return (
     <div className="modus-box" ref={box}>
-      <div className="modus" role="radiogroup" aria-label="Arbeitsweise">
-        {MODI.map((m) => (
+      <div className="modus" role="radiogroup" aria-label={t("Arbeitsweise")}>
+        {modi().map((m) => (
           <button
             key={m.id}
             type="button"
@@ -253,14 +255,14 @@ function Modus({ snap, fehler }: { snap: Snapshot; fehler: (text: string | null)
         ))}
       </div>
       {frage && (
-        <div className="menue auto-frage" role="alertdialog" aria-label="Auto-Modus">
+        <div className="menue auto-frage" role="alertdialog" aria-label={t("Auto-Modus")}>
           <p>
-            <strong>Auto</strong> ändert Dateien und führt Befehle aus, ohne zu fragen. Es beginnt ein
-            neuer Chat. Nur für Projekte unter Versionsverwaltung.
+            <strong>Auto</strong>{" "}
+            {t("ändert Dateien und führt Befehle aus, ohne zu fragen. Es beginnt ein neuer Chat. Nur für Projekte unter Versionsverwaltung.")}
           </p>
           <div>
             <button type="button" className="knopf" onClick={() => setFrage(false)}>
-              Abbrechen
+              {t("Abbrechen")}
             </button>
             <button
               type="button"
@@ -270,7 +272,7 @@ function Modus({ snap, fehler }: { snap: Snapshot; fehler: (text: string | null)
                 void setzen("auto");
               }}
             >
-              Auto einschalten
+              {t("Auto einschalten")}
             </button>
           </div>
         </div>
@@ -304,7 +306,7 @@ function ModellMenue({ snap, fehler }: { snap: Snapshot; fehler: (text: string |
   }));
   const gateway: Wahl[] = (snap.gateway?.models ?? [])
     .filter((m) => m.kind === "chat" && !bekannt.has(m.id))
-    .map((m) => ({ wert: m.id, name: m.id.replace(/^jlu\//, ""), detail: "am Gateway" }));
+    .map((m) => ({ wert: m.id, name: m.id.replace(/^jlu\//, ""), detail: t("am Gateway") }));
 
   const aktiv = snap.model;
   const gewaehlt =
@@ -344,28 +346,28 @@ function ModellMenue({ snap, fehler }: { snap: Snapshot; fehler: (text: string |
         disabled={!snap.canSwitch}
         aria-haspopup="menu"
         aria-expanded={offen}
-        title={snap.canSwitch ? "Modell wählen" : "Während einer Antwort nicht wählbar"}
+        title={snap.canSwitch ? t("Modell wählen") : t("Während einer Antwort nicht wählbar")}
         onClick={() => setOffen((o) => !o)}
       >
-        <span>{gewaehlt?.name ?? "Modell"}</span>
+        <span>{gewaehlt?.name ?? t("Modell")}</span>
         <ChevronDown size={13} />
       </button>
       {offen && (
         <div className="menue modell-menue" role="menu">
-          <div className="menue-gruppe">Modell</div>
-          {eigene.length === 0 && <div className="menue-leer">Keine Modelle konfiguriert.</div>}
+          <div className="menue-gruppe">{t("Modell")}</div>
+          {eigene.length === 0 && <div className="menue-leer">{t("Keine Modelle konfiguriert.")}</div>}
           {eigene.map(punkt)}
-          {gateway.length > 0 && <div className="menue-gruppe">Weitere am Gateway</div>}
+          {gateway.length > 0 && <div className="menue-gruppe">{t("Weitere am Gateway")}</div>}
           {gateway.map(punkt)}
           <div className="menue-fuss">
             <span>
               {snap.gateway?.error ??
-                (snap.gateway?.loading ? "Gateway wird gefragt …" : "Nur freie Modelle (jlu/…)")}
+                (snap.gateway?.loading ? t("Gateway wird gefragt …") : t("Nur freie Modelle (jlu/…)"))}
             </span>
             <button
               type="button"
-              aria-label="Liste neu laden"
-              title="Liste neu laden"
+              aria-label={t("Liste neu laden")}
+              title={t("Liste neu laden")}
               disabled={!snap.readiness?.keyStored || snap.gateway?.loading}
               onClick={() => void agent.refreshGateway()}
             >
@@ -405,7 +407,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
     const nurBilder = liste.filter((d) => d.type.startsWith("image/"));
     if (!nurBilder.length) return;
     if (!snap.canAttachImages) {
-      setFehler("Das aktive Modell kann keine Bilder lesen.");
+      setFehler(t("Das aktive Modell kann keine Bilder lesen."));
       return;
     }
     setFehler(null);
@@ -413,7 +415,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       const neu = await Promise.all(nurBilder.map(alsBild));
       setBilder((alt) => {
         const alle = [...alt, ...neu];
-        if (alle.length > MAX_BILDER) setFehler(`Höchstens ${MAX_BILDER} Bilder je Nachricht.`);
+        if (alle.length > MAX_BILDER) setFehler(t("Höchstens {n} Bilder je Nachricht.", { n: MAX_BILDER }));
         return alle.slice(0, MAX_BILDER);
       });
     } catch (ursache) {
@@ -466,7 +468,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       try {
         if (bild) {
           if (!snap.canAttachImages) {
-            setFehler("Das aktive Modell kann keine Bilder lesen.");
+            setFehler(t("Das aktive Modell kann keine Bilder lesen."));
             continue;
           }
           const b = await agent.readImage(p);
@@ -524,24 +526,24 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
   }
 
   /** Diktierter Text an die Schreibmarke — markierter Text wird ersetzt. */
-  function diktiert(t: string) {
+  function diktiert(diktat: string) {
     const el = feld.current;
     const von = el?.selectionStart ?? text.length;
     const bis = el?.selectionEnd ?? text.length;
     const davor = text.slice(0, von);
     const danach = text.slice(bis);
     const luecke = davor && !/\s$/.test(davor) ? " " : "";
-    const neu = `${davor}${luecke}${t}${danach && !/^\s/.test(danach) ? " " : ""}${danach}`;
+    const neu = `${davor}${luecke}${diktat}${danach && !/^\s/.test(danach) ? " " : ""}${danach}`;
     setText(neu);
-    const pos = davor.length + luecke.length + t.length;
+    const pos = davor.length + luecke.length + diktat.length;
     requestAnimationFrame(() => {
       el?.focus();
       el?.setSelectionRange(pos, pos);
     });
   }
 
-  function auftrag(t: string) {
-    setText((alt) => (alt.trim() ? `${alt.trimEnd()}\n${t}` : t));
+  function auftrag(auftragText: string) {
+    setText((alt) => (alt.trim() ? `${alt.trimEnd()}\n${auftragText}` : auftragText));
     requestAnimationFrame(() => {
       const el = feld.current;
       el?.focus();
@@ -554,7 +556,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
       <div className="spalte">
         {schwebt && (
           <div className="ablage-hinweis" aria-live="polite">
-            Loslassen zum Anhängen — Bilder, PDF, Word, Excel, Text
+            {t("Loslassen zum Anhängen — Bilder, PDF, Word, Excel, Text")}
           </div>
         )}
         <div
@@ -577,7 +579,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
               {bilder.map((a) => (
                 <div key={a.id} className="anhang">
                   <img src={a.url} alt="" />
-                  <button type="button" aria-label="Bild entfernen" onClick={() => setBilder((alt) => alt.filter((x) => x.id !== a.id))}>
+                  <button type="button" aria-label={t("Bild entfernen")} onClick={() => setBilder((alt) => alt.filter((x) => x.id !== a.id))}>
                     <X size={11} />
                   </button>
                 </div>
@@ -586,7 +588,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
                 <div key={d.path} className="anhang-datei" title={d.path}>
                   <FileText size={14} />
                   <span>{d.name}</span>
-                  <button type="button" aria-label={`${d.name} entfernen`} onClick={() => setDateien((alt) => alt.filter((x) => x.path !== d.path))}>
+                  <button type="button" aria-label={t("{name} entfernen", { name: d.name })} onClick={() => setDateien((alt) => alt.filter((x) => x.path !== d.path))}>
                     <X size={11} />
                   </button>
                 </div>
@@ -616,7 +618,7 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
               ref={feld}
               rows={1}
               value={text}
-              placeholder={snap.hasProject ? "Frag jichi …" : "Frag jichi … oder öffne zuerst ein Projekt"}
+              placeholder={snap.hasProject ? t("Frag jichi …") : t("Frag jichi … oder öffne zuerst ein Projekt")}
               readOnly={!snap.canSend && !arbeitet}
               onChange={(e) => setText(e.target.value)}
               onPaste={(e) => {
@@ -637,15 +639,15 @@ export function Eingabe({ snap }: { snap: Snapshot }) {
               <Mikrofon einfuegen={diktiert} fehler={setFehler} aus={!snap.canSend && !arbeitet} />
             )}
             {arbeitet ? (
-              <button className="senden stopp" onClick={() => void agent.cancel()} aria-label="Antwort abbrechen" title="Abbrechen">
+              <button className="senden stopp" onClick={() => void agent.cancel()} aria-label={t("Antwort abbrechen")} title={t("Abbrechen")}>
                 <Square size={11} fill="currentColor" />
               </button>
             ) : leer ? (
-              <span className="senden ruhig" aria-hidden="true" title="Enter zum Senden">
+              <span className="senden ruhig" aria-hidden="true" title={t("Enter zum Senden")}>
                 <CornerDownLeft size={15} />
               </span>
             ) : (
-              <button className="senden" disabled={!snap.canSend} onClick={senden} aria-label="Senden" title="Senden (Enter)">
+              <button className="senden" disabled={!snap.canSend} onClick={senden} aria-label={t("Senden")} title={t("Senden (Enter)")}>
                 <ArrowUp size={16} strokeWidth={2.4} />
               </button>
             )}

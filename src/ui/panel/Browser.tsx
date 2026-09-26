@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw } from "lucide-react";
 
-import { agent, type BrowserState } from "../../core/index.ts";
+import { agent, t, type BrowserState } from "../../core/index.ts";
 import { panel, type PanelTab } from "./store.ts";
 
 const hoerer = new Map<string, (s: BrowserState) => void>();
@@ -90,21 +90,21 @@ export function BrowserFenster({ tab, sichtbar }: { tab: Extract<PanelTab, { kin
   return (
     <div className="browser">
       <div className="browser-leiste">
-        <button type="button" className="knopf-klein knopf-symbol" aria-label="Zurück" disabled={!tab.url} onClick={() => void agent.browserGo(id, "back").catch(() => {})}><ArrowLeft size={14} /></button>
-        <button type="button" className="knopf-klein knopf-symbol" aria-label="Vor" disabled={!tab.url} onClick={() => void agent.browserGo(id, "forward").catch(() => {})}><ArrowRight size={14} /></button>
-        <button type="button" className="knopf-klein knopf-symbol" aria-label="Neu laden" disabled={!tab.url} onClick={() => void agent.browserGo(id, "reload").catch(() => {})}><RotateCw size={13} className={laedt ? "dreht" : ""} /></button>
+        <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Zurück")} disabled={!tab.url} onClick={() => void agent.browserGo(id, "back").catch(() => {})}><ArrowLeft size={14} /></button>
+        <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Vor")} disabled={!tab.url} onClick={() => void agent.browserGo(id, "forward").catch(() => {})}><ArrowRight size={14} /></button>
+        <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Neu laden")} disabled={!tab.url} onClick={() => void agent.browserGo(id, "reload").catch(() => {})}><RotateCw size={13} className={laedt ? "dreht" : ""} /></button>
         <form className="browser-adresse" onSubmit={(e) => { e.preventDefault(); laden(eingabe); }}>
           <Globe size={12} />
-          <input value={eingabe} onChange={(e) => setEingabe(e.target.value)} placeholder="Adresse, z. B. localhost:5173" spellCheck={false} aria-label="Adresse" />
+          <input value={eingabe} onChange={(e) => setEingabe(e.target.value)} placeholder={t("Adresse, z. B. localhost:5173")} spellCheck={false} aria-label={t("Adresse")} />
         </form>
-        <button type="button" className="knopf-klein knopf-symbol" aria-label="Im System-Browser öffnen" title="Im System-Browser öffnen" disabled={!/^https?:/.test(tab.url)} onClick={() => void agent.openLink(tab.url).catch(() => {})}><ExternalLink size={13} /></button>
+        <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Im System-Browser öffnen")} title={t("Im System-Browser öffnen")} disabled={!/^https?:/.test(tab.url)} onClick={() => void agent.openLink(tab.url).catch(() => {})}><ExternalLink size={13} /></button>
       </div>
       {titel && <div className="browser-titel" title={titel}>{titel}</div>}
       {fehler && <p className="panel-fehler">{fehler}</p>}
       <div className="browser-platz" ref={platz}>
         {!tab.url && (
           <div className="panel-leer">
-            <p>Eine Adresse eingeben — etwa den Dev-Server deines Projekts.</p>
+            <p>{t("Eine Adresse eingeben — etwa den Dev-Server deines Projekts.")}</p>
             <div className="browser-vorschlaege">
               {VORSCHLAEGE.map((v) => (
                 <button key={v} type="button" className="knopf-klein" onClick={() => { setEingabe(v); laden(v); }}>{v}</button>

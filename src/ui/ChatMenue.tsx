@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { FileDown, FileText, FileType2, Keyboard, MoreHorizontal } from "lucide-react";
 
-import { agent, type ExportFormat, type Snapshot } from "../core/index.ts";
+import { agent, t, type ExportFormat, type Snapshot } from "../core/index.ts";
 import { nachricht } from "./util.ts";
 
 export function ChatMenue({ snap, tasten }: { snap: Snapshot; tasten: () => void }) {
@@ -21,7 +21,7 @@ export function ChatMenue({ snap, tasten }: { snap: Snapshot; tasten: () => void
     setOffen(false);
     try {
       if (await agent.exportChat(f)) {
-        setMeldung("exportiert");
+        setMeldung(t("exportiert"));
         setTimeout(() => setMeldung(null), 2000);
       }
     } catch (e) {
@@ -42,17 +42,17 @@ export function ChatMenue({ snap, tasten }: { snap: Snapshot; tasten: () => void
   return (
     <div className="chat-menue" ref={box}>
       {meldung && <span className="panel-meldung">{meldung}</span>}
-      <button type="button" className="knopf-klein knopf-symbol" aria-label="Chat-Menü" aria-haspopup="menu" aria-expanded={offen} title="Mehr" onClick={() => setOffen((o) => !o)}>
+      <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Chat-Menü")} aria-haspopup="menu" aria-expanded={offen} title={t("Mehr")} onClick={() => setOffen((o) => !o)}>
         <MoreHorizontal size={15} />
       </button>
       {offen && (
         <div className="menue chat-menue-liste" role="menu">
-          <div className="menue-gruppe">Chat exportieren</div>
+          <div className="menue-gruppe">{t("Chat exportieren")}</div>
           {punkt(<FileText size={15} />, "Markdown", ".md", () => void exportieren("md"), leer)}
           {punkt(<FileType2 size={15} />, "Word", ".docx", () => void exportieren("docx"), leer)}
           {punkt(<FileDown size={15} />, "PDF", ".pdf", () => void exportieren("pdf"), leer)}
-          <div className="menue-gruppe">Hilfe</div>
-          {punkt(<Keyboard size={15} />, "Tastenkürzel", /Mac/i.test(navigator.userAgent) ? "⌘/" : "Strg+/", () => { setOffen(false); tasten(); })}
+          <div className="menue-gruppe">{t("Hilfe")}</div>
+          {punkt(<Keyboard size={15} />, t("Tastenkürzel"), /Mac/i.test(navigator.userAgent) ? "⌘/" : `${t("Strg")}+/`, () => { setOffen(false); tasten(); })}
         </div>
       )}
     </div>

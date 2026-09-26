@@ -10,14 +10,16 @@
  * Ablage der Rust-Seite (eine 0600-Datei), nicht in dieser.
  */
 
+import { systemSprache, type Sprache } from "./i18n.ts";
+
 export type Appearance = "system" | "light" | "dark";
 export type PanelLayout = "floating" | "classic";
 
 export interface Preferences {
   /** Wie der Agent den Benutzer anspricht. Rein lokal, nichts mit dem Konto zu tun. */
   name: string;
-  /** Sprache der Oberfläche. Vorerst nur Deutsch. */
-  language: "de";
+  /** Sprache der Oberfläche. */
+  language: Sprache;
   appearance: Appearance;
   /** Die neue freistehende Seitenleiste oder Claudes ursprüngliches Fensterlayout. */
   layout: PanelLayout;
@@ -27,7 +29,7 @@ const STORAGE_KEY = "jichi-desktop.preferences.v1";
 
 export const DEFAULT_PREFERENCES: Preferences = {
   name: "",
-  language: "de",
+  language: systemSprache(),
   appearance: "system",
   layout: "floating",
 };
@@ -39,7 +41,8 @@ export function readPreferences(): Preferences {
     const parsed = JSON.parse(raw) as Partial<Preferences>;
     return {
       name: typeof parsed.name === "string" ? parsed.name : DEFAULT_PREFERENCES.name,
-      language: "de",
+      // Wer die Einstellungen schon hatte, bekam Deutsch — und behält es.
+      language: parsed.language === "en" ? "en" : parsed.language === "de" ? "de" : DEFAULT_PREFERENCES.language,
       appearance:
         parsed.appearance === "light" || parsed.appearance === "dark"
           ? parsed.appearance

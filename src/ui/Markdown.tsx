@@ -18,16 +18,28 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { Check, Copy, Sparkles } from "lucide-react";
 
-import { agent } from "../core/index.ts";
+import { agent, t } from "../core/index.ts";
 import { panel } from "./panel/store.ts";
+import { useSprache } from "./util.ts";
 
 /** Sprachen, die als lebendiges Artefakt in der Seitenleiste laufen. */
 const ARTEFAKT: Record<string, string> = { html: "html", svg: "svg", xml: "", mermaid: "mermaid", jsx: "jsx", tsx: "tsx", markdown: "markdown", md: "markdown" };
-const TITEL: Record<string, string> = { html: "HTML-Seite", svg: "Grafik", mermaid: "Diagramm", jsx: "React-Komponente", tsx: "React-Komponente", markdown: "Dokument" };
+/** Beim Aufruf ausgewertet, damit der Titel der aktuellen Sprache folgt. */
+function standardTitel(lang: string): string | undefined {
+  switch (lang) {
+    case "html": return t("HTML-Seite");
+    case "svg": return t("Grafik");
+    case "mermaid": return t("Diagramm");
+    case "jsx":
+    case "tsx": return t("React-Komponente");
+    case "markdown": return t("Dokument");
+    default: return undefined;
+  }
+}
 
 function artefaktTitel(lang: string, code: string): string {
-  const t = /<title>([^<]{1,60})<\/title>/i.exec(code)?.[1] ?? /^#\s+(.{1,60})$/m.exec(code)?.[1] ?? /(?:function|const)\s+([A-Z]\w{1,40})/.exec(code)?.[1];
-  return t?.trim() || TITEL[lang] || "Artefakt";
+  const titel = /<title>([^<]{1,60})<\/title>/i.exec(code)?.[1] ?? /^#\s+(.{1,60})$/m.exec(code)?.[1] ?? /(?:function|const)\s+([A-Z]\w{1,40})/.exec(code)?.[1];
+  return titel?.trim() || standardTitel(lang) || t("Artefakt");
 }
 
 /** Sieht aus wie ein Pfad im Projekt: `src/main.rs`, `README.md`, `a/b.c:12`. */
@@ -66,12 +78,12 @@ function Codeblock({ children, className }: { children?: ReactNode; className?: 
         <span className="md-code-luecke" />
         {alsArtefakt && (
           <button type="button" className="md-code-artefakt" onClick={() => panel.artefakt({ lang: alsArtefakt, code: text, title: artefaktTitel(alsArtefakt, text) })}>
-            <Sparkles size={12} /> Öffnen
+            <Sparkles size={12} /> {t("Öffnen")}
           </button>
         )}
-        <button type="button" onClick={() => void kopieren()} aria-label="Code kopieren">
+        <button type="button" onClick={() => void kopieren()} aria-label={t("Code kopieren")}>
           {kopiert ? <Check size={12} /> : <Copy size={12} />}
-          {kopiert ? "Kopiert" : "Kopieren"}
+          {kopiert ? t("Kopiert") : t("Kopieren")}
         </button>
       </div>
       <pre>
@@ -86,15 +98,15 @@ const components: Components = {
   code({ className, children }) {
     const block = /language-/.test(className ?? "") || textOf(children).includes("\n");
     if (block) return <Codeblock className={className}>{children}</Codeblock>;
-    const t = textOf(children);
-    const pfad = PFAD.exec(t);
+    const inhalt = textOf(children);
+    const pfad = PFAD.exec(inhalt);
     if (pfad) {
       // Ein Pfad öffnet die Datei in der Seitenleiste (fehlt sie, sagt die Ansicht das).
       const line = pfad[1] ? Number(pfad[1]) : undefined;
       return (
-        <code className="md-inline md-pfad" role="link" tabIndex={0} title="In der Seitenleiste öffnen"
-          onClick={() => panel.datei(t.replace(/:\d+$/, ""), line)}
-          onKeyDown={(e) => e.key === "Enter" && panel.datei(t.replace(/:\d+$/, ""), line)}>
+        <code className="md-inline md-pfad" role="link" tabIndex={0} title={t("In der Seitenleiste öffnen")}
+          onClick={() => panel.datei(inhalt.replace(/:\d+$/, ""), line)}
+          onKeyDown={(e) => e.key === "Enter" && panel.datei(inhalt.replace(/:\d+$/, ""), line)}>
           {children}
         </code>
       );
@@ -123,7 +135,7 @@ const components: Components = {
   img({ alt, src }) {
     return (
       <span className="md-bild" title={src ?? ""}>
-        [Bild{alt ? `: ${alt}` : ""}]
+        {alt ? t("[Bild: {alt}]", { alt }) : t("[Bild]")}
       </span>
     );
   },
@@ -136,6 +148,7 @@ const components: Components = {
 
 /** Nur neu rechnen, wenn sich der Text ändert — beim Streamen die jüngste Nachricht. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  useSprache();
   return (
     <div className="md">
       <ReactMarkdown

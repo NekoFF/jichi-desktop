@@ -10,6 +10,8 @@
  * Das Raster ist dasselbe wie in `assets/brand/jichi-mark.svg`.
  */
 
+import { t } from "../core/index.ts";
+
 const U = 100;
 const PFEIL: ReadonlyArray<readonly [number, number]> = [
   [0, 0],
@@ -35,7 +37,7 @@ export function Marke({
       width={size}
       height={(size * 500) / 465}
       role="img"
-      aria-label={animiert ? "jichi arbeitet" : "jichi"}
+      aria-label={animiert ? t("jichi arbeitet") : "jichi"}
     >
       <g className="pfeil">
         {PFEIL.map(([x, y], i) => (

@@ -4,6 +4,7 @@
  */
 
 import type { GatewayModel } from "./transport.ts";
+import { t } from "./i18n.ts";
 
 export const DEFAULT_TRANSCRIBE = "jlu/whisper-1";
 export const DEFAULT_SPEECH = "jlu/tts-1-hd";
@@ -26,24 +27,24 @@ export function speechModel(models: readonly GatewayModel[] | undefined, kind: "
  * Verweise werden zu ihrem Text, Auszeichnung verschwindet.
  */
 export function sprechbar(markdown: string): string {
-  let t = markdown.replace(/\r\n/g, "\n");
-  t = t.replace(/```[\s\S]*?(```|$)/g, "\n(Codeblock ausgelassen.)\n");
-  t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
-  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  t = t.replace(/`([^`]+)`/g, "$1");
-  t = t.replace(/^\s{0,3}#{1,6}\s+/gm, "");
-  t = t.replace(/^\s*>\s?/gm, "");
-  t = t.replace(/^\s*[-*+]\s+/gm, "");
-  t = t.replace(/^\s*\|?\s*:?-{3,}.*$/gm, "");
-  t = t.replace(/\|/g, " ");
-  t = t.replace(/(\*\*|__|~~)(.+?)\1/g, "$2");
-  t = t.replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,!?:;]|$)/g, "$1$2");
-  t = t.replace(/https?:\/\/\S+/g, "");
-  t = t.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-  if (t.length > SPEAK_MAX) {
-    const schnitt = t.slice(0, SPEAK_MAX);
+  let text = markdown.replace(/\r\n/g, "\n");
+  text = text.replace(/```[\s\S]*?(```|$)/g, `\n${t("(Codeblock ausgelassen.)")}\n`);
+  text = text.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  text = text.replace(/`([^`]+)`/g, "$1");
+  text = text.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  text = text.replace(/^\s*>\s?/gm, "");
+  text = text.replace(/^\s*[-*+]\s+/gm, "");
+  text = text.replace(/^\s*\|?\s*:?-{3,}.*$/gm, "");
+  text = text.replace(/\|/g, " ");
+  text = text.replace(/(\*\*|__|~~)(.+?)\1/g, "$2");
+  text = text.replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,!?:;]|$)/g, "$1$2");
+  text = text.replace(/https?:\/\/\S+/g, "");
+  text = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (text.length > SPEAK_MAX) {
+    const schnitt = text.slice(0, SPEAK_MAX);
     const satz = Math.max(schnitt.lastIndexOf(". "), schnitt.lastIndexOf("\n"));
-    t = satz > SPEAK_MAX * 0.6 ? schnitt.slice(0, satz + 1) : schnitt;
+    text = satz > SPEAK_MAX * 0.6 ? schnitt.slice(0, satz + 1) : schnitt;
   }
-  return t;
+  return text;
 }

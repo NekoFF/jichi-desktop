@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2, Mic, Square, Volume2 } from "lucide-react";
 
-import { agent } from "../core/index.ts";
+import { agent, t } from "../core/index.ts";
 import { nachricht } from "./util.ts";
 
 /** Längste Aufnahme; danach wird von selbst gestoppt und erkannt. */
@@ -22,8 +22,8 @@ export function kannAufnehmen(): boolean {
 
 /** Das Format, das diese WebView kann und Whisper versteht. */
 function format(): string | undefined {
-  for (const t of ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"]) {
-    if (MediaRecorder.isTypeSupported?.(t)) return t;
+  for (const typ of ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"]) {
+    if (MediaRecorder.isTypeSupported?.(typ)) return typ;
   }
   return undefined;
 }
@@ -31,10 +31,10 @@ function format(): string | undefined {
 function mikrofonFehler(e: unknown): string {
   const name = (e as { name?: string })?.name;
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Kein Zugriff auf das Mikrofon — in den Systemeinstellungen unter Datenschutz › Mikrofon erlauben.";
+    return t("Kein Zugriff auf das Mikrofon — in den Systemeinstellungen unter Datenschutz › Mikrofon erlauben.");
   }
-  if (name === "NotFoundError") return "Kein Mikrofon gefunden.";
-  return `Aufnahme nicht möglich: ${nachricht(e)}`;
+  if (name === "NotFoundError") return t("Kein Mikrofon gefunden.");
+  return t("Aufnahme nicht möglich: {grund}", { grund: nachricht(e) });
 }
 
 type Diktat = "bereit" | "nimmt-auf" | "erkennt";
@@ -56,7 +56,7 @@ export function Mikrofon({ einfuegen, fehler, aus }: {
     if (uhr.current) clearInterval(uhr.current);
     if (grenze.current) clearTimeout(grenze.current);
     uhr.current = grenze.current = null;
-    rec.current?.stream.getTracks().forEach((t) => t.stop());
+    rec.current?.stream.getTracks().forEach((spur) => spur.stop());
     rec.current = null;
   }, []);
 
@@ -107,7 +107,7 @@ export function Mikrofon({ einfuegen, fehler, aus }: {
       try {
         const text = await agent.transcribe(new Blob(teile, { type: typ }));
         if (text) einfuegen(text);
-        else fehler("Nichts verstanden — bitte noch einmal.");
+        else fehler(t("Nichts verstanden — bitte noch einmal."));
       } catch (e) {
         fehler(nachricht(e));
       } finally {
@@ -129,7 +129,7 @@ export function Mikrofon({ einfuegen, fehler, aus }: {
     const ss = String(sekunden % 60).padStart(2, "0");
     return (
       <button type="button" className="mikrofon nimmt-auf" onClick={() => stoppen(false)}
-        aria-label="Aufnahme beenden und erkennen" title="Beenden und erkennen · Esc verwirft">
+        aria-label={t("Aufnahme beenden und erkennen")} title={t("Beenden und erkennen · Esc verwirft")}>
         <span className="mikrofon-punkt" aria-hidden="true" />
         <span className="mikrofon-zeit">{mm}:{ss}</span>
         <Square size={10} fill="currentColor" />
@@ -138,13 +138,13 @@ export function Mikrofon({ einfuegen, fehler, aus }: {
   }
   if (zustand === "erkennt") {
     return (
-      <span className="mikrofon erkennt" role="status" aria-label="Wird erkannt" title="Wird erkannt …">
+      <span className="mikrofon erkennt" role="status" aria-label={t("Wird erkannt")} title={t("Wird erkannt …")}>
         <Loader2 size={15} className="dreht" />
       </span>
     );
   }
   return (
-    <button type="button" className="mikrofon" disabled={aus} onClick={() => void starten()} aria-label="Diktieren" title="Diktieren">
+    <button type="button" className="mikrofon" disabled={aus} onClick={() => void starten()} aria-label={t("Diktieren")} title={t("Diktieren")}>
       <Mic size={15} />
     </button>
   );
@@ -171,7 +171,7 @@ function anhalten() {
   setze({ id: null, laedt: false });
 }
 
-async function vorlesen(id: string, text: string, fehler: (t: string) => void) {
+async function vorlesen(id: string, text: string, fehler: (text: string) => void) {
   anhalten();
   setze({ id, laedt: true });
   try {
@@ -182,7 +182,7 @@ async function vorlesen(id: string, text: string, fehler: (t: string) => void) {
     ton.onended = anhalten;
     ton.onerror = () => {
       anhalten();
-      fehler("Der Ton ließ sich nicht abspielen.");
+      fehler(t("Der Ton ließ sich nicht abspielen."));
     };
     setze({ id, laedt: false });
     await ton.play();
@@ -200,8 +200,8 @@ export function Vorlesen({ id, text }: { id: string; text: string }) {
   const [fehler, setFehler] = useState<string | null>(null);
   useEffect(() => {
     if (!fehler) return;
-    const t = setTimeout(() => setFehler(null), 6000);
-    return () => clearTimeout(t);
+    const uhr = setTimeout(() => setFehler(null), 6000);
+    return () => clearTimeout(uhr);
   }, [fehler]);
   const meins = s.id === id;
   return (
@@ -209,8 +209,8 @@ export function Vorlesen({ id, text }: { id: string; text: string }) {
       <button type="button"
         className={meins ? "vorlesen aktiv" : "vorlesen"}
         onClick={() => (meins ? anhalten() : void vorlesen(id, text, setFehler))}
-        aria-label={meins ? "Vorlesen beenden" : "Vorlesen"}
-        title={meins ? "Vorlesen beenden" : "Vorlesen"}
+        aria-label={meins ? t("Vorlesen beenden") : t("Vorlesen")}
+        title={meins ? t("Vorlesen beenden") : t("Vorlesen")}
         aria-pressed={meins}>
         {meins && s.laedt ? <Loader2 size={14} className="dreht" /> : meins ? <Square size={11} fill="currentColor" /> : <Volume2 size={14} />}
       </button>

@@ -18,10 +18,12 @@ import {
 import { Vorlesen } from "./Sprache.tsx";
 import {
   agent,
+  locale,
   permissionTone,
   producedFiles,
   relativeTime,
   shortPath,
+  t,
   toolKindLabel,
   toolStatusLabel,
   type Snapshot,
@@ -35,6 +37,7 @@ import { Marke } from "./Marke.tsx";
 import { Vorschau } from "./Vorschau.tsx";
 import { panel, zurEingabe } from "./panel/store.ts";
 import { Sprungleiste, type SprungZug } from "./Sprungleiste.tsx";
+import { useSprache } from "./util.ts";
 
 // ── Verlauf ──────────────────────────────────────────────────────────────────
 
@@ -55,16 +58,16 @@ function Terminalausgabe({ view }: { view: TerminalView }) {
           unten.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
       >
-        {view.truncated && <span className="terminal-gekuerzt">… ältere Ausgabe gekürzt{"\n"}</span>}
+        {view.truncated && <span className="terminal-gekuerzt">{t("… ältere Ausgabe gekürzt")}{"\n"}</span>}
         {view.output || (view.exit ? "" : "…")}
       </pre>
       {view.exit && (
         <div className={`terminal-ende${view.exit.exitCode === 0 ? " ok" : " fehler"}`}>
           {view.exit.exitCode === 0
-            ? "beendet"
+            ? t("beendet")
             : view.exit.signal !== null
-              ? `abgebrochen (Signal ${view.exit.signal})`
-              : `beendet mit Code ${view.exit.exitCode ?? "?"}`}
+              ? t("abgebrochen (Signal {signal})", { signal: view.exit.signal })
+              : t("beendet mit Code {code}", { code: view.exit.exitCode ?? "?" })}
         </div>
       )}
     </div>
@@ -72,12 +75,13 @@ function Terminalausgabe({ view }: { view: TerminalView }) {
 }
 
 const Werkzeug = memo(function Werkzeug({ eintrag, terminal }: { eintrag: ToolItem; terminal?: TerminalView }) {
+  useSprache();
   const laeuft = eintrag.status === "in_progress" || eintrag.status === "pending";
 
   // Ein laufender Befehl klappt von selbst auf: dafür ist die Live-Ausgabe da.
   const [offen, setOffen] = useState<boolean | null>(null);
   const aufgeklappt = offen ?? (!!terminal && laeuft);
-  const text = [eintrag.output, eintrag.truncated ? "… gekürzt" : ""].filter(Boolean).join("\n");
+  const text = [eintrag.output, eintrag.truncated ? t("… gekürzt") : ""].filter(Boolean).join("\n");
   const hatArgumente = eintrag.rawInput !== undefined && eintrag.rawInput !== null;
   const hatInhalt = !!text || !!terminal || hatArgumente;
 
@@ -103,12 +107,12 @@ const Werkzeug = memo(function Werkzeug({ eintrag, terminal }: { eintrag: ToolIt
           <div className="werkzeug-spruenge">
             {terminal && eintrag.terminalId && (
               <button type="button" className="knopf-klein" onClick={() => panel.terminal(eintrag.terminalId)}>
-                <SquareTerminal size={12} /> Im Terminal ansehen
+                <SquareTerminal size={12} /> {t("Im Terminal ansehen")}
               </button>
             )}
             {(eintrag.toolKind === "edit" || eintrag.toolKind === "delete" || eintrag.toolKind === "move") && eintrag.status === "completed" && (
               <button type="button" className="knopf-klein" onClick={() => panel.aenderungen()}>
-                <GitCompare size={12} /> Änderungen ansehen
+                <GitCompare size={12} /> {t("Änderungen ansehen")}
               </button>
             )}
           </div>
@@ -137,8 +141,8 @@ function Aktionen({ id, text, frage, at, canSend, sprechen }: {
   // „vor 3 Min.“ soll nicht stehen bleiben.
   useEffect(() => {
     if (!at) return;
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => clearInterval(t);
+    const uhr = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(uhr);
   }, [at]);
 
   async function kopieren() {
@@ -153,7 +157,7 @@ function Aktionen({ id, text, frage, at, canSend, sprechen }: {
 
   return (
     <div className="aktionen">
-      <button type="button" onClick={() => void kopieren()} aria-label="Antwort kopieren" title="Kopieren">
+      <button type="button" onClick={() => void kopieren()} aria-label={t("Antwort kopieren")} title={t("Kopieren")}>
         {kopiert ? <Check size={14} /> : <Copy size={14} />}
       </button>
       {sprechen && <Vorlesen id={id} text={text} />}
@@ -162,14 +166,14 @@ function Aktionen({ id, text, frage, at, canSend, sprechen }: {
           type="button"
           disabled={!canSend}
           onClick={() => void agent.send(frage).catch(() => {})}
-          aria-label="Noch einmal fragen"
-          title="Noch einmal fragen"
+          aria-label={t("Noch einmal fragen")}
+          title={t("Noch einmal fragen")}
         >
           <RotateCcw size={14} />
         </button>
       )}
       {at && (
-        <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString("de-DE")}>
+        <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString(locale())}>
           {relativeTime(at / 1000)}
         </time>
       )}
@@ -182,15 +186,16 @@ function Arbeitet({ snap }: { snap: Snapshot }) {
   const start = useRef(Date.now());
   const [jetzt, setJetzt] = useState(Date.now());
   useEffect(() => {
-    const t = setInterval(() => setJetzt(Date.now()), 1000);
-    return () => clearInterval(t);
+    const uhr = setInterval(() => setJetzt(Date.now()), 1000);
+    return () => clearInterval(uhr);
   }, []);
   const s = Math.max(0, Math.round((jetzt - start.current) / 1000));
-  const was = snap.status === "starting" ? "startet" : snap.status === "cancelling" ? "bricht ab" : "arbeitet";
+  const was =
+    snap.status === "starting" ? t("jichi startet …") : snap.status === "cancelling" ? t("jichi bricht ab …") : t("jichi arbeitet …");
   return (
     <div className="arbeitet" role="status" aria-live="polite">
       <Marke size={16} animiert />
-      <span>jichi {was} …</span>
+      <span>{was}</span>
       {s >= 3 && <span className="arbeitet-zeit">{s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`}</span>}
     </div>
   );
@@ -202,6 +207,7 @@ function Arbeitet({ snap }: { snap: Snapshot }) {
  * Nachricht neu, nicht alle davor.
  */
 const Eintrag = memo(function Eintrag({ eintrag, terminal }: { eintrag: TranscriptItem; terminal?: TerminalView }) {
+  useSprache();
   if (eintrag.kind === "tool") return <Werkzeug eintrag={eintrag} terminal={terminal} />;
 
   if (eintrag.kind === "notice") {
@@ -217,7 +223,7 @@ const Eintrag = memo(function Eintrag({ eintrag, terminal }: { eintrag: Transcri
           {eintrag.images?.length ? (
             <div className="nachricht-bilder">
               {eintrag.images.map((src, i) => (
-                <img key={i} src={src} alt={`Bild ${i + 1}`} />
+                <img key={i} src={src} alt={t("Bild {n}", { n: i + 1 })} />
               ))}
             </div>
           ) : null}
@@ -233,7 +239,7 @@ const Eintrag = memo(function Eintrag({ eintrag, terminal }: { eintrag: Transcri
           {eintrag.text}
         </div>
         {eintrag.text && (
-          <button type="button" className="nachricht-bearbeiten" title="Bearbeiten und erneut senden" aria-label="Nachricht bearbeiten"
+          <button type="button" className="nachricht-bearbeiten" title={t("Bearbeiten und erneut senden")} aria-label={t("Nachricht bearbeiten")}
             onClick={() => zurEingabe.send({ ersetzen: eintrag.text })}>
             <Pencil size={12} />
           </button>
@@ -270,8 +276,8 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
   const werkzeug = /^[\w.-]+/.exec(frage.title)?.[0] ?? null;
   const erlaubenEinmal = frage.options.find((o) => o.kind === "allow_once") ?? frage.options.find((o) => o.kind === "allow_always");
   return (
-    <div className="rueckfrage" ref={kasten} role="alertdialog" aria-label="jichi bittet um Erlaubnis">
-      <div className="rueckfrage-titel">jichi bittet um Erlaubnis</div>
+    <div className="rueckfrage" ref={kasten} role="alertdialog" aria-label={t("jichi bittet um Erlaubnis")}>
+      <div className="rueckfrage-titel">{t("jichi bittet um Erlaubnis")}</div>
       <code>{frage.title}</code>
       <div className="rueckfrage-vorschau">
         <Vorschau rawInput={aufruf?.rawInput} cacheKey={frage.toolCallId} live />
@@ -291,17 +297,17 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
         {werkzeug && erlaubenEinmal && (
           <button
             className="knopf"
-            title={`Auch nach einem Neustart: trägt ${werkzeug} in jichis Erlaubnisse ein (permissions.allow). Rückgängig in den Einstellungen.`}
+            title={t("Auch nach einem Neustart: trägt {werkzeug} in jichis Erlaubnisse ein (permissions.allow). Rückgängig in den Einstellungen.", { werkzeug })}
             onClick={() => void agent.alwaysAllow(werkzeug).then(
               () => agent.answerPermission(erlaubenEinmal.optionId),
               () => agent.answerPermission(erlaubenEinmal.optionId),
             )}
           >
-            Immer erlauben
+            {t("Immer erlauben")}
           </button>
         )}
         <button className="knopf" onClick={() => agent.answerPermission(null)}>
-          Abbrechen
+          {t("Abbrechen")}
         </button>
       </div>
     </div>
@@ -309,6 +315,7 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
 }
 
 export function Verlauf({ snap }: { snap: Snapshot }) {
+  const sprache = useSprache();
   const box = useRef<HTMLDivElement>(null);
   const amEnde = useRef(true);
 
@@ -336,16 +343,16 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
     setAktiveFrage(aktiv);
   }
 
-  const t = snap.transcript;
+  const eintraege = snap.transcript;
   const laeuft = snap.status === "busy" || snap.status === "starting" || snap.status === "cancelling";
   // Je Datei nur eine Karte: unter dem letzten Werkzeug, das sie geschrieben hat.
   const dateien = useMemo(() => {
     const letzte = new Map<string, string>();
-    for (const e of t) {
+    for (const e of eintraege) {
       if (e.kind === "tool") for (const f of producedFiles(e.rawInput, e.status)) letzte.set(f, e.id);
     }
     return letzte;
-  }, [t]);
+  }, [eintraege]);
 
   // Ein Durchgang von hinten statt einer Suche je Eintrag: wo endet ein Zug,
   // und welche Frage gehört dazu.
@@ -353,22 +360,22 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
     const endeVon = new Set<string>();
     const frageVon = new Map<string, string | null>();
     let schonAntwort = false;
-    for (let i = t.length - 1; i >= 0; i -= 1) {
-      const e = t[i];
+    for (let i = eintraege.length - 1; i >= 0; i -= 1) {
+      const e = eintraege[i];
       if (e.kind === "message" && e.role === "user") {
         schonAntwort = false;
       } else if (e.kind === "message" && e.role === "agent" && !schonAntwort) {
         schonAntwort = true;
-        const letzterZug = !t.slice(i + 1).some((n) => n.kind === "message" && n.role === "user");
+        const letzterZug = !eintraege.slice(i + 1).some((n) => n.kind === "message" && n.role === "user");
         if (!e.streaming && !(laeuft && letzterZug)) endeVon.add(e.id);
       }
     }
     let frage: string | null = null;
     const zuege: SprungZug[] = [];
-    for (const e of t) {
+    for (const e of eintraege) {
       if (e.kind === "message" && e.role === "user") {
         frage = e.text && !e.images?.length && !e.files?.length ? e.text : null;
-        zuege.push({ id: e.id, text: e.text || (e.files?.join(", ") ?? "Bild"), at: e.at, umfang: 0, werkzeuge: 0 });
+        zuege.push({ id: e.id, text: e.text || (e.files?.join(", ") ?? t("Bild")), at: e.at, umfang: 0, werkzeuge: 0 });
       } else if (zuege.length) {
         const z = zuege[zuege.length - 1];
         if (e.kind === "message") z.umfang += e.text.length;
@@ -377,7 +384,8 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
       if (endeVon.has(e.id)) frageVon.set(e.id, frage);
     }
     return { endeVon, frageVon, zuege };
-  }, [t, laeuft]);
+    // `sprache`: der Ersatztext „Bild“ folgt der Sprache.
+  }, [eintraege, laeuft, sprache]);
 
   const springen = useCallback((id: string) => {
     const el = box.current?.querySelector<HTMLElement>(`[data-frage="${id}"]`);
@@ -398,7 +406,7 @@ export function Verlauf({ snap }: { snap: Snapshot }) {
       <Sprungleiste zuege={zuege} aktiv={aktiveFrage ?? zuege[zuege.length - 1]?.id ?? null} springen={springen} />
       <div className="verlauf" ref={box} onScroll={beobachten}>
         <div className="spalte">
-          {t.map((e) => {
+          {eintraege.map((e) => {
             const ende = endeVon.has(e.id);
             const istFrage = e.kind === "message" && e.role === "user";
             return (
@@ -431,31 +439,32 @@ export function Leer({
   name: string;
   frage: (text: string) => void;
 }) {
+  useSprache();
   // Ohne Projekt würde „Tests ausführen“ im Heimatverzeichnis laufen.
   const projektfrage = snap.hasProject && snap.canSend;
   return (
     <div className="leer">
       <div className="leer-mitte">
         <Marke size={40} className="leer-marke" />
-        <h2 className="leer-titel">{name ? `Hallo, ${name}.` : "Womit fangen wir an?"}</h2>
+        <h2 className="leer-titel">{name ? t("Hallo, {name}.", { name }) : t("Womit fangen wir an?")}</h2>
         <p className="leer-text">
-          {snap.hasProject && snap.cwd ? shortPath(snap.cwd, 60) : "Noch kein Projekt geöffnet."}
+          {snap.hasProject && snap.cwd ? shortPath(snap.cwd, 60) : t("Noch kein Projekt geöffnet.")}
         </p>
 
         {!snap.hasProject && (
           <button className="vorschlag" disabled={!snap.canSwitch} onClick={() => void agent.pickWorkspace().catch(() => {})}>
             <FolderOpen size={15} />
-            Projekt öffnen
-            <small>Ordner wählen</small>
+            {t("Projekt öffnen")}
+            <small>{t("Ordner wählen")}</small>
           </button>
         )}
-        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage("Erklär mir dieses Projekt.")}>
+        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage(t("Erklär mir dieses Projekt."))}>
           <FileText size={15} />
-          Projekt erklären
+          {t("Projekt erklären")}
         </button>
-        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage("Führe die Tests aus.")}>
+        <button className="vorschlag" disabled={!projektfrage} onClick={() => frage(t("Führe die Tests aus."))}>
           <Terminal size={15} />
-          Tests ausführen
+          {t("Tests ausführen")}
         </button>
       </div>
     </div>

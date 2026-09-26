@@ -11,6 +11,8 @@
  * selbst eine unbekannte Methode beantwortet — mit `-32601`, nicht mit Schweigen.
  */
 
+import { t } from "./i18n.ts";
+
 export const RpcCode = {
   parseError: -32700,
   invalidRequest: -32600,
@@ -101,7 +103,7 @@ export class JsonRpcPeer {
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           if (!this.#pending.delete(id)) return;
-          reject(new Error(`${method}: keine Antwort nach ${Math.round(timeoutMs / 1000)} Sekunden`));
+          reject(new Error(t("{methode}: keine Antwort nach {n} Sekunden", { methode: method, n: Math.round(timeoutMs / 1000) })));
         }, timeoutMs);
       }
     });
@@ -179,7 +181,7 @@ export class JsonRpcPeer {
       entry.reject(
         new RpcError(
           msg.error.code ?? RpcCode.internalError,
-          msg.error.message ?? "Fehler ohne Meldung",
+          msg.error.message ?? t("Fehler ohne Meldung"),
           msg.error.data,
         ),
       );

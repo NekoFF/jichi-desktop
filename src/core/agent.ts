@@ -41,6 +41,7 @@ import {
   type LaunchConfig,
 } from "./settings.ts";
 import * as S from "./state.ts";
+import { t } from "./i18n.ts";
 import { dateiname, transcriptMarkdown } from "./export.ts";
 
 /** Welcher Chat zuletzt je Projekt offen war — zum Wiederöffnen beim Start. */
@@ -97,7 +98,7 @@ const NEW_SESSION_MS = 30_000;
 /** Das Laden spielt den ganzen Verlauf ein; ein langer Chat braucht Zeit. */
 const LOAD_SESSION_MS = 120_000;
 
-const BUSY = "Bitte warte, bis die Antwort beendet ist.";
+const BUSY = (): string => t("Bitte warte, bis die Antwort beendet ist.");
 
 export class Agent {
   readonly #transport: Transport;
@@ -214,7 +215,7 @@ export class Agent {
    * lädt den offenen Chat wieder.
    */
   async setDocuments(enable: boolean): Promise<void> {
-    if (this.#busy()) throw new Error(BUSY);
+    if (this.#busy()) throw new Error(BUSY());
     const status = await this.#transport.documentsSet(enable);
     this.#set({ documents: status });
     await this.#relaunchKeepingChat();
@@ -264,7 +265,7 @@ export class Agent {
   /** Eine Antwort vorlesen: Markdown wird zu Sprechtext, zurück kommt mp3. */
   async speak(markdown: string): Promise<ArrayBuffer> {
     const text = sprechbar(markdown);
-    if (!text) throw new Error("Es gibt nichts vorzulesen.");
+    if (!text) throw new Error(t("Es gibt nichts vorzulesen."));
     return this.#transport.speak(text, speechModel(this.#snapshot.gateway?.models, "speech"));
   }
 
@@ -276,7 +277,7 @@ export class Agent {
    * Sitzung, also gilt danach das neue.
    */
   async setModel(model: string | null): Promise<void> {
-    if (this.#busy()) throw new Error(BUSY);
+    if (this.#busy()) throw new Error(BUSY());
     this.#config ??= await resolveConfig(this.#transport);
     const next = model?.trim() || null;
     if ((this.#config.model ?? null) === next) return;
@@ -293,7 +294,7 @@ export class Agent {
    * neuen Chat, sobald der alte Inhalt hat, und sagt das.
    */
   async setMode(mode: S.AgentMode): Promise<void> {
-    if (this.#busy()) throw new Error(BUSY);
+    if (this.#busy()) throw new Error(BUSY());
     this.#config ??= await resolveConfig(this.#transport);
     if ((this.#config.mode ?? "chat") === mode) return;
     this.#config = { ...this.#config, mode };
@@ -302,7 +303,7 @@ export class Agent {
     if (!this.#ready) return;
     await this.#restart();
     await this.newSession();
-    if (this.#ready) this.#note("info", `Neuer Chat im Modus „${MODE_LABEL[mode]}“.`);
+    if (this.#ready) this.#note("info", t("Neuer Chat im Modus „{modus}“.", { modus: MODE_LABEL[mode] }));
   }
 
   async #relaunchKeepingChat(): Promise<void> {
@@ -318,7 +319,7 @@ export class Agent {
   /** Heutiger Inhalt einer Datei im offenen Projekt, für die Vorschau einer Änderung. */
   async readProjectFile(path: string): Promise<string | null> {
     const cwd = this.#snapshot.cwd ?? this.#config?.cwd;
-    if (!cwd) throw new Error("Kein Projekt geöffnet.");
+    if (!cwd) throw new Error(t("Kein Projekt geöffnet."));
     return this.#transport.readWorkspaceFile(cwd, path);
   }
 
@@ -326,7 +327,7 @@ export class Agent {
 
   #projekt(): string {
     const cwd = this.#snapshot.cwd ?? this.#config?.cwd;
-    if (!cwd) throw new Error("Kein Projekt geöffnet.");
+    if (!cwd) throw new Error(t("Kein Projekt geöffnet."));
     return cwd;
   }
 
@@ -453,7 +454,7 @@ export class Agent {
 
   /** Eine Textdatei für den nächsten Zug wählen. `null`, wenn abgebrochen wurde. */
   async pickAttachment(): Promise<FileAttachment | null> {
-    const path = await this.#transport.pickFile("Datei anhängen");
+    const path = await this.#transport.pickFile(t("Datei anhängen"));
     return path ? this.#transport.readAttachment(path) : null;
   }
 
@@ -497,12 +498,12 @@ export class Agent {
    */
   async setup(apiKey: string): Promise<DoctorReport> {
     const key = apiKey.trim();
-    if (!key) throw new Error("Bitte den API-Schlüssel eintragen.");
+    if (!key) throw new Error(t("Bitte den API-Schlüssel eintragen."));
 
     const readiness = await this.#transport.readiness(this.#config?.program);
     this.#set({ readiness });
     if (!readiness.agent) {
-      throw new Error("jichi wurde auf diesem Rechner nicht gefunden. Bitte das Programm auswählen.");
+      throw new Error(t("jichi wurde auf diesem Rechner nicht gefunden. Bitte das Programm auswählen."));
     }
 
     await this.#transport.secretStore(readiness.keyEnv, key);
@@ -553,7 +554,7 @@ export class Agent {
 
   /** Dateiauswahl für das Programm. Liefert den Pfad, oder `null`. */
   async pickProgram(): Promise<string | null> {
-    const picked = await this.#transport.pickFile("jichi auswählen");
+    const picked = await this.#transport.pickFile(t("jichi auswählen"));
     if (picked) await this.setProgram(picked);
     return picked;
   }
@@ -573,7 +574,7 @@ export class Agent {
     await this.disconnect();
     await this.refreshReadiness();
     if (this.#snapshot.readiness?.keyStored !== false) {
-      throw new Error("Der API-Schlüssel ist weiterhin verfügbar.");
+      throw new Error(t("Der API-Schlüssel ist weiterhin verfügbar."));
     }
   }
 
@@ -586,7 +587,7 @@ export class Agent {
   async openWorkspace(path: string): Promise<void> {
     const cwd = path.trim();
     if (!cwd) return;
-    if (!this.#snapshot.canSwitch && !this.#snapshot.needsSetup) throw new Error(BUSY);
+    if (!this.#snapshot.canSwitch && !this.#snapshot.needsSetup) throw new Error(BUSY());
     this.#config ??= await resolveConfig(this.#transport);
     this.#config = { ...this.#config, cwd };
     store(this.#config);
@@ -596,7 +597,7 @@ export class Agent {
 
   /** Ordnerauswahl des Betriebssystems. Liefert den gewählten Pfad, oder `null`. */
   async pickWorkspace(): Promise<string | null> {
-    const picked = await this.#transport.pickDirectory("Projektordner wählen");
+    const picked = await this.#transport.pickDirectory(t("Projektordner wählen"));
     if (picked) await this.openWorkspace(picked);
     return picked;
   }
@@ -616,8 +617,8 @@ export class Agent {
     if (dropped.length) {
       this.#note(
         "warning",
-        `Nicht gespeichert, weil der Name nach einem Geheimnis aussieht: ${dropped.join(", ")}. ` +
-          `Statt eines Wertes bitte eine Datei angeben — sie wird erst beim Start gelesen.`,
+        t("Nicht gespeichert, weil der Name nach einem Geheimnis aussieht: {namen}. ", { namen: dropped.join(", ") }) +
+          t("Statt eines Wertes bitte eine Datei angeben — sie wird erst beim Start gelesen."),
       );
     }
     if (before && launchKey(before) === launchKey(next) && before.cwd === next.cwd) return;
@@ -625,7 +626,7 @@ export class Agent {
     void this.#probeVersion();
     if (before?.program !== next.program) void this.refreshReadiness();
     if (this.#ready) {
-      if (!this.#snapshot.canSwitch) throw new Error(BUSY);
+      if (!this.#snapshot.canSwitch) throw new Error(BUSY());
       await this.#restart();
       await this.newSession();
     }
@@ -644,7 +645,7 @@ export class Agent {
     this.#releasePermission();
     this.#releaseTerminals();
     await this.#transport.stop();
-    this.#peer.rejectAll("die Verbindung wurde getrennt");
+    this.#peer.rejectAll(t("die Verbindung wurde getrennt"));
     this.#set({
       status: "offline",
       sessionId: null,
@@ -654,7 +655,7 @@ export class Agent {
   }
 
   async newSession(): Promise<void> {
-    if (this.#busy()) throw new Error(BUSY);
+    if (this.#busy()) throw new Error(BUSY());
     const cwd = this.#config?.cwd ?? this.#snapshot.cwd ?? "/";
     await this.#spawnIn(cwd);
     if (!this.#ready) return;
@@ -686,7 +687,7 @@ export class Agent {
    * hinausgeht — sonst filtert der Empfang die Wiedergabe als fremd weg.
    */
   async loadSession(sessionId: string): Promise<void> {
-    if (this.#busy()) throw new Error(BUSY);
+    if (this.#busy()) throw new Error(BUSY());
     const known = this.#snapshot.sessions.find((s) => s.id === sessionId);
     const cwd = known?.workspace ?? this.#config?.cwd ?? this.#snapshot.cwd ?? "/";
 
@@ -739,14 +740,14 @@ export class Agent {
     const sessionId = this.#snapshot.sessionId;
     if (this.#snapshot.status !== "ready" || !sessionId) {
       throw new Error(
-        this.#snapshot.error ?? "Der Agent ist nicht bereit — bitte Einstellungen prüfen.",
+        this.#snapshot.error ?? t("Der Agent ist nicht bereit — bitte Einstellungen prüfen."),
       );
     }
 
     // Bilder nur, wenn das Modell sie liest — jichi verwirft sie sonst stumm,
     // und der Benutzer hielte die Antwort für eine Antwort auf das Bild.
     if (images.length && !this.#snapshot.canAttachImages) {
-      throw new Error("Das aktive Modell kann keine Bilder lesen.");
+      throw new Error(t("Das aktive Modell kann keine Bilder lesen."));
     }
     // Dateien als eingebettete Ressource: jichi liest deren Text in den Zug ein.
     const blocks: ContentBlock[] = [
@@ -862,7 +863,7 @@ export class Agent {
 
   /** Den offenen Chat exportieren. `false`: Dialog abgebrochen. */
   async exportChat(format: ExportFormat): Promise<boolean> {
-    const titel = this.#snapshot.sessions.find((s) => s.id === this.#snapshot.sessionId)?.title ?? "Chat mit jichi";
+    const titel = this.#snapshot.sessions.find((s) => s.id === this.#snapshot.sessionId)?.title ?? t("Chat mit jichi");
     const dest = await this.#transport.pickExportLocation(`${dateiname(titel)}.${format}`, format);
     if (!dest) return false;
     await this.#transport.exportChat(dest, format, titel, transcriptMarkdown(this.#snapshot.transcript, titel));
@@ -917,7 +918,7 @@ export class Agent {
   /** Mit allen MCP-Servern verbinden und ihre Werkzeuge nennen (ohne Modell). */
   mcpTest(): Promise<string> {
     const c = this.#config;
-    if (!c) throw new Error("Der Agent ist noch nicht eingerichtet.");
+    if (!c) throw new Error(t("Der Agent ist noch nicht eingerichtet."));
     return this.#transport.mcpTest(c.program, c.env);
   }
 
@@ -933,15 +934,15 @@ export class Agent {
   /** Eine gespeicherte Sitzung nach Bestätigung durch die Oberfläche löschen. */
   async deleteSession(sessionId: string): Promise<void> {
     if (!this.#snapshot.sessions.some((session) => session.id === sessionId)) {
-      throw new Error("Dieser Chat ist nicht mehr vorhanden.");
+      throw new Error(t("Dieser Chat ist nicht mehr vorhanden."));
     }
     if (this.#snapshot.sessionId === sessionId) {
       if (this.#snapshot.status === "busy" || this.#snapshot.status === "cancelling") {
-        throw new Error("Bitte warte, bis die Antwort beendet ist.");
+        throw new Error(BUSY());
       }
       await this.newSession();
       if (this.#snapshot.sessionId === sessionId || this.#snapshot.status !== "ready") {
-        throw new Error("Der aktive Chat konnte nicht geschlossen werden.");
+        throw new Error(t("Der aktive Chat konnte nicht geschlossen werden."));
       }
     }
     await this.#transport.deleteSession(sessionId);
@@ -968,7 +969,7 @@ export class Agent {
     this.#releaseTerminals();
     this.#generation = 0; // Nachhall des alten Kindes gilt ab jetzt als fremd
     await this.#transport.stop();
-    this.#peer.rejectAll("der Agent wird neu gestartet");
+    this.#peer.rejectAll(t("der Agent wird neu gestartet"));
   }
 
   #id(): string {
@@ -1081,7 +1082,7 @@ export class Agent {
       if (result.protocolVersion !== PROTOCOL_VERSION) {
         this.#note(
           "warning",
-          `Der Agent spricht Protokollversion ${result.protocolVersion}, diese Anwendung ${PROTOCOL_VERSION}.`,
+          t("Der Agent spricht Protokollversion {agent}, diese Anwendung {app}.", { agent: result.protocolVersion, app: PROTOCOL_VERSION }),
         );
       }
       this.#ready = true;
@@ -1114,10 +1115,10 @@ export class Agent {
     this.#set({ status, transcript });
 
     if (stopReason === "cancelled") {
-      this.#note("info", "Abgebrochen.");
+      this.#note("info", t("Abgebrochen."));
       this.#set({ transcript: S.failRunningTools(this.#snapshot.transcript) });
     } else if (stopReason !== "end_turn") {
-      this.#note("warning", `Der Zug endete mit „${stopReason}“.`);
+      this.#note("warning", t("Der Zug endete mit „{grund}“.", { grund: stopReason }));
     }
   }
 
@@ -1131,7 +1132,7 @@ export class Agent {
     if (!unbeachtet || dauer < 15_000 || stopReason === "cancelled") return;
     const letzte = [...this.#snapshot.transcript].reverse().find((i) => i.kind === "message" && i.role === "agent");
     const text = letzte?.kind === "message" ? letzte.text.replace(/[#*`_>]/g, "").trim().slice(0, 140) : "";
-    void this.#transport.notify("jichi ist fertig", text || "Die Antwort liegt bereit.").catch(() => {});
+    void this.#transport.notify(t("jichi ist fertig"), text || t("Die Antwort liegt bereit.")).catch(() => {});
   }
 
   #onExit(code: number | null): void {
@@ -1145,12 +1146,12 @@ export class Agent {
       capabilities: null,
       transcript: S.failRunningTools(S.finalizeStreaming(this.#snapshot.transcript)),
     });
-    this.#peer.rejectAll("der Agent wurde beendet");
+    this.#peer.rejectAll(t("der Agent wurde beendet"));
     this.#note(
       code === 0 || code === null ? "info" : "error",
       code === 0 || code === null
-        ? "Der Agent wurde beendet."
-        : `Der Agent wurde mit Code ${code} beendet. Die letzten Meldungen stehen in der Diagnose.`,
+        ? t("Der Agent wurde beendet.")
+        : t("Der Agent wurde mit Code {code} beendet. Die letzten Meldungen stehen in der Diagnose.", { code }),
     );
   }
 
@@ -1294,13 +1295,13 @@ export class Agent {
     const pending: S.PendingPermission = {
       requestId: id,
       toolCallId: call?.toolCallId ?? "",
-      title: call?.title?.trim() || "Werkzeug ausführen",
+      title: call?.title?.trim() || t("Werkzeug ausführen"),
       toolKind: call?.kind ?? "other",
       options: Array.isArray(params?.options) ? params.options : [],
     };
     this.#set({ permission: pending });
     if (typeof document !== "undefined" && (document.hidden || !document.hasFocus())) {
-      void this.#transport.notify("jichi wartet auf deine Erlaubnis", pending.title).catch(() => {});
+      void this.#transport.notify(t("jichi wartet auf deine Erlaubnis"), pending.title).catch(() => {});
     }
 
     return new Promise<PermissionOutcome>((resolve) => {

@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { Download, RotateCw } from "lucide-react";
 
-import { agent } from "../../core/index.ts";
+import { agent, t } from "../../core/index.ts";
 import { Markdown } from "../Markdown.tsx";
 import { Code } from "./Code.tsx";
 import { KopierKnopf } from "./DateiAnsicht.tsx";
@@ -42,7 +42,7 @@ export function ArtefaktFenster({ tab }: { tab: Extract<PanelTab, { kind: "artef
         pfad = name.replace(/(\.[^.]+)$/, `-${n}$1`);
       }
       await agent.writeText(pfad, tab.code, null);
-      setMeldung(`als ${pfad} gespeichert`);
+      setMeldung(t("als {pfad} gespeichert", { pfad }));
     } catch (e) {
       setMeldung(e instanceof Error ? e.message : String(e));
     }
@@ -52,18 +52,18 @@ export function ArtefaktFenster({ tab }: { tab: Extract<PanelTab, { kind: "artef
   return (
     <div className="artefakt">
       <div className="panel-werkzeuge">
-        <div className="umschalter" role="group" aria-label="Ansicht">
-          <button type="button" className={ansicht === "vorschau" ? "gewaehlt" : ""} onClick={() => setAnsicht("vorschau")}>Vorschau</button>
-          <button type="button" className={ansicht === "code" ? "gewaehlt" : ""} onClick={() => setAnsicht("code")}>Code</button>
+        <div className="umschalter" role="group" aria-label={t("Ansicht")}>
+          <button type="button" className={ansicht === "vorschau" ? "gewaehlt" : ""} onClick={() => setAnsicht("vorschau")}>{t("Vorschau")}</button>
+          <button type="button" className={ansicht === "code" ? "gewaehlt" : ""} onClick={() => setAnsicht("code")}>{t("Code")}</button>
         </div>
         <span className="artefakt-titel">{tab.title}</span>
         {meldung && <span className="panel-meldung">{meldung}</span>}
         <span className="luecke" />
         {!md && ansicht === "vorschau" && (
-          <button type="button" className="knopf-klein knopf-symbol" title="Neu starten" aria-label="Neu starten" onClick={() => setRunde((r) => r + 1)}><RotateCw size={13} /></button>
+          <button type="button" className="knopf-klein knopf-symbol" title={t("Neu starten")} aria-label={t("Neu starten")} onClick={() => setRunde((r) => r + 1)}><RotateCw size={13} /></button>
         )}
         <KopierKnopf text={tab.code} />
-        <button type="button" className="knopf-klein knopf-symbol" title="Im Projekt speichern" aria-label="Im Projekt speichern" onClick={() => void speichern()}><Download size={13} /></button>
+        <button type="button" className="knopf-klein knopf-symbol" title={t("Im Projekt speichern")} aria-label={t("Im Projekt speichern")} onClick={() => void speichern()}><Download size={13} /></button>
       </div>
       <div className="artefakt-inhalt">
         {ansicht === "code" ? (

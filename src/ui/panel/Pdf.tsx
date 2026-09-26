@@ -11,6 +11,8 @@ import { useEffect, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
+import { t } from "../../core/index.ts";
+
 let pdfjs: Promise<typeof import("pdfjs-dist")> | null = null;
 
 function lade() {
@@ -51,14 +53,14 @@ function Seite({ doc, nr, scale }: { doc: PDFDocumentProxy; nr: number; scale: n
       c.height = Math.floor(vp.height * dpr);
       const ctx = c.getContext("2d");
       if (!ctx) return;
-      const t = page.render({
+      const zeichnen = page.render({
         canvas: c,
         canvasContext: ctx,
         viewport: vp,
         transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined,
       });
-      task = t;
-      t.promise.catch(() => {});
+      task = zeichnen;
+      zeichnen.promise.catch(() => {});
     });
     return () => {
       aus = true;
@@ -86,9 +88,9 @@ export function PdfAnsicht({ url }: { url: string }) {
     setFehler(null);
     void lade()
       .then((lib) => {
-        const t = lib.getDocument({ url, enableXfa: false });
-        aufgabe = t;
-        return t.promise;
+        const ladeAufgabe = lib.getDocument({ url, enableXfa: false });
+        aufgabe = ladeAufgabe;
+        return ladeAufgabe.promise;
       })
       .then(async (d) => {
         if (aus) return;
@@ -109,19 +111,19 @@ export function PdfAnsicht({ url }: { url: string }) {
     <div className="pdf" ref={box}>
       {doc && scale && (
         <div className="pdf-leiste">
-          <span>{doc.numPages} {doc.numPages === 1 ? "Seite" : "Seiten"}</span>
+          <span>{doc.numPages === 1 ? t("1 Seite") : t("{n} Seiten", { n: doc.numPages })}</span>
           <span className="luecke" />
-          <button type="button" className="knopf-klein knopf-symbol" aria-label="Verkleinern" onClick={() => setScale((s) => Math.max(0.3, (s ?? 1) / 1.2))}>
+          <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Herauszoomen")} onClick={() => setScale((s) => Math.max(0.3, (s ?? 1) / 1.2))}>
             <Minus size={13} />
           </button>
-          <span className="pdf-zoom">{Math.round(scale * 100)} %</span>
-          <button type="button" className="knopf-klein knopf-symbol" aria-label="Vergrößern" onClick={() => setScale((s) => Math.min(4, (s ?? 1) * 1.2))}>
+          <span className="pdf-zoom">{t("{n} %", { n: Math.round(scale * 100) })}</span>
+          <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Hineinzoomen")} onClick={() => setScale((s) => Math.min(4, (s ?? 1) * 1.2))}>
             <Plus size={13} />
           </button>
         </div>
       )}
-      {fehler && <p className="panel-fehler">Das PDF ließ sich nicht anzeigen: {fehler}</p>}
-      {!doc && !fehler && <p className="panel-hinweis">PDF wird geladen …</p>}
+      {fehler && <p className="panel-fehler">{t("Das PDF ließ sich nicht anzeigen: {fehler}", { fehler })}</p>}
+      {!doc && !fehler && <p className="panel-hinweis">{t("PDF wird geladen …")}</p>}
       <div className="pdf-seiten">
         {doc && scale && Array.from({ length: doc.numPages }, (_, i) => <Seite key={i} doc={doc} nr={i + 1} scale={scale} />)}
       </div>

@@ -16,7 +16,8 @@
 import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Wrench } from "lucide-react";
 
-import { relativeTime } from "../core/index.ts";
+import { relativeTime, t } from "../core/index.ts";
+import { useSprache } from "./util.ts";
 
 export interface SprungZug {
   id: string;
@@ -56,6 +57,7 @@ export const Sprungleiste = memo(function Sprungleiste({
   aktiv: string | null;
   springen: (id: string) => void;
 }) {
+  useSprache();
   // Während gescrollt wird (die aktive Frage wechselt), kurz deutlich zeigen.
   const [scrollt, setScrollt] = useState(false);
   const ruhe = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,13 +135,13 @@ export const Sprungleiste = memo(function Sprungleiste({
   const ziel = naechste >= 0 ? sichtbar[naechste] : null;
 
   return (
-    <nav className={`sprungleiste${maus !== null ? " schwebt" : ""}${scrollt ? " scrollt" : ""}`} aria-label="Fragen in diesem Chat">
+    <nav className={`sprungleiste${maus !== null ? " schwebt" : ""}${scrollt ? " scrollt" : ""}`} aria-label={t("Fragen in diesem Chat")}>
       <div
         ref={leiste}
         className="sprung-pixel"
         role="button"
         tabIndex={0}
-        aria-label={`${zuege.length} Fragen — Enter öffnet die Liste`}
+        aria-label={t("{n} Fragen — Enter öffnet die Liste", { n: zuege.length })}
         aria-expanded={liste}
         onMouseEnter={(e) => { messen(); bewegen(e); }}
         onMouseMove={bewegen}
@@ -178,7 +180,7 @@ export const Sprungleiste = memo(function Sprungleiste({
       {liste && (
         <div className="sprung-karte" role="list">
           <div className="sprung-kopf">
-            <span>{zuege.length} Fragen</span>
+            <span>{t("{n} Fragen", { n: zuege.length })}</span>
             <span className="sprung-taste">⌥↑ ⌥↓</span>
           </div>
           {zuege.map((z, i) => (

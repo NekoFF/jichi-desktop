@@ -10,9 +10,10 @@
 import { memo, useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
-import { agent, applyPlan, planOf, visible, type PlannedFile } from "../core/index.ts";
+import { agent, applyPlan, planOf, t, visible, type PlannedFile } from "../core/index.ts";
 import { Diff } from "./Diff.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { useSprache } from "./util.ts";
 
 function Befehl({ command, background }: { command: string; background: boolean }) {
   const { text, suspicious } = visible(command);
@@ -20,15 +21,14 @@ function Befehl({ command, background }: { command: string; background: boolean 
     <div className="vorschau-befehl">
       {suspicious && (
         <p className="vorschau-warnung">
-          <AlertTriangle size={13} /> Der Befehl enthält unsichtbare Zeichen. Sie sind unten markiert
-          (␍, ␛, ⟨U+…⟩) — lies ihn genau.
+          <AlertTriangle size={13} /> {t("Der Befehl enthält unsichtbare Zeichen. Sie sind unten markiert (␍, ␛, ⟨U+…⟩) — lies ihn genau.")}
         </p>
       )}
       <pre>
         <span className="prompt">$ </span>
         {text}
       </pre>
-      {background && <p className="vorschau-notiz">läuft im Hintergrund weiter</p>}
+      {background && <p className="vorschau-notiz">{t("läuft im Hintergrund weiter")}</p>}
     </div>
   );
 }
@@ -51,9 +51,9 @@ function Datei({ file, cacheKey, live }: { file: PlannedFile; cacheKey: string; 
     let aktuell = true;
     agent
       .readProjectFile(file.path)
-      .then((t) => {
-        vorherCache.set(key, { text: t, fehler: null });
-        if (aktuell) setVorher(t);
+      .then((inhalt) => {
+        vorherCache.set(key, { text: inhalt, fehler: null });
+        if (aktuell) setVorher(inhalt);
       })
       .catch((e: unknown) => {
         const text = e instanceof Error ? e.message : String(e);
@@ -69,7 +69,7 @@ function Datei({ file, cacheKey, live }: { file: PlannedFile; cacheKey: string; 
 
   if (vorher === undefined) {
     return live ? (
-      <div className="vorschau-laedt">{file.path} wird gelesen …</div>
+      <div className="vorschau-laedt">{t("{path} wird gelesen …", { path: file.path })}</div>
     ) : (
       <div className="vorschau-laedt">{file.path}</div>
     );
@@ -78,7 +78,9 @@ function Datei({ file, cacheKey, live }: { file: PlannedFile; cacheKey: string; 
   const notiz = fehler
     ? fehler
     : missing
-      ? `${missing} ${missing === 1 ? "Ersetzung passt" : "Ersetzungen passen"} nicht zum heutigen Inhalt — das Werkzeug wird dort scheitern.`
+      ? missing === 1
+        ? t("1 Ersetzung passt nicht zum heutigen Inhalt — das Werkzeug wird dort scheitern.")
+        : t("{n} Ersetzungen passen nicht zum heutigen Inhalt — das Werkzeug wird dort scheitern.", { n: missing })
       : undefined;
   return <Diff path={file.path} before={fehler ? "" : vorher} after={text} note={notiz} />;
 }
@@ -96,6 +98,7 @@ export const Vorschau = memo(function Vorschau({
   cacheKey: string;
   live: boolean;
 }) {
+  useSprache();
   const plan = planOf(rawInput);
   switch (plan.kind) {
     case "command":
@@ -113,7 +116,7 @@ export const Vorschau = memo(function Vorschau({
         <div className="vorschau-dokument">
           <div className="vorschau-dokument-kopf">
             <span>{plan.path}</span>
-            <span className="diff-neu">neues Dokument</span>
+            <span className="diff-neu">{t("neues Dokument")}</span>
           </div>
           <div className="vorschau-dokument-blatt">
             {plan.title && <h1 className="vorschau-dokument-titel">{plan.title}</h1>}
@@ -126,7 +129,7 @@ export const Vorschau = memo(function Vorschau({
         <div className="vorschau-dokument">
           <div className="vorschau-dokument-kopf">
             <span>{plan.path}</span>
-            <span className="diff-neu">neue Tabelle</span>
+            <span className="diff-neu">{t("neue Tabelle")}</span>
           </div>
           {plan.sheets.map((b) => (
             <div key={b.name} className="vorschau-blatt">
@@ -137,15 +140,15 @@ export const Vorschau = memo(function Vorschau({
                     {b.rows.slice(0, 50).map((r, i) => (
                       <tr key={i}>
                         {r.map((c, j) => {
-                          const t = c === null || c === undefined ? "" : String(c);
-                          return i === 0 ? <th key={j}>{t}</th> : <td key={j} className={t.startsWith("=") ? "formel" : ""}>{t}</td>;
+                          const zelle = c === null || c === undefined ? "" : String(c);
+                          return i === 0 ? <th key={j}>{zelle}</th> : <td key={j} className={zelle.startsWith("=") ? "formel" : ""}>{zelle}</td>;
                         })}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {b.rows.length > 50 && <div className="vorschau-notiz">… {b.rows.length - 50} weitere Zeilen</div>}
+              {b.rows.length > 50 && <div className="vorschau-notiz">{t("… {n} weitere Zeilen", { n: b.rows.length - 50 })}</div>}
             </div>
           ))}
         </div>
@@ -154,8 +157,7 @@ export const Vorschau = memo(function Vorschau({
       return (
         <div className="vorschau-unlesbar">
           <p className="vorschau-warnung">
-            <AlertTriangle size={13} /> Die Argumente sind kein gültiges JSON. jichi repariert sie vor der
-            Ausführung — was dann läuft, lässt sich hier nicht sicher zeigen. Im Zweifel ablehnen.
+            <AlertTriangle size={13} /> {t("Die Argumente sind kein gültiges JSON. jichi repariert sie vor der Ausführung — was dann läuft, lässt sich hier nicht sicher zeigen. Im Zweifel ablehnen.")}
           </p>
           {plan.raw && <pre>{visible(plan.raw).text}</pre>}
         </div>

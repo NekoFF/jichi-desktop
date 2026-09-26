@@ -12,6 +12,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
 
+import { t } from "./i18n.ts";
+
 /**
  * Eine Umgebungsvariable für den Agenten.
  *
@@ -532,7 +534,7 @@ export const tauriTransport: Transport = {
   searchChats: (query) => invoke<ChatHit[]>("search_chats", { query }).catch(fail),
   async pickExportLocation(defaultName, ext) {
     const names: Record<ExportFormat, string> = { md: "Markdown", docx: "Word", pdf: "PDF" };
-    const picked = await save({ defaultPath: defaultName, title: "Chat exportieren", filters: [{ name: names[ext], extensions: [ext] }] }).catch(fail);
+    const picked = await save({ defaultPath: defaultName, title: t("Chat exportieren"), filters: [{ name: names[ext], extensions: [ext] }] }).catch(fail);
     return typeof picked === "string" ? picked : null;
   },
   exportChat: (dest, format, title, markdown) => invoke<void>("export_chat", { dest, format, title, markdown }).catch(fail),
@@ -572,13 +574,13 @@ export const tauriTransport: Transport = {
   revealFile: (cwd, path) => invoke<void>("reveal_file", { cwd, path }).catch(fail),
   saveFileCopy: (cwd, path, dest) => invoke<void>("save_file_copy", { cwd, path, dest }).catch(fail),
   async pickSaveLocation(defaultName) {
-    const picked = await save({ defaultPath: defaultName, title: "Kopie speichern" }).catch(fail);
+    const picked = await save({ defaultPath: defaultName, title: t("Kopie speichern") }).catch(fail);
     return typeof picked === "string" ? picked : null;
   },
   documentsSet: (enable) => invoke<DocumentsStatus>("documents_set", { enable }).catch(fail),
 
   async openUrl(url) {
-    if (!/^https?:\/\//i.test(url)) throw new Error("Nur http- und https-Verweise werden geöffnet.");
+    if (!/^https?:\/\//i.test(url)) throw new Error(t("Nur http- und https-Verweise werden geöffnet."));
     await openExternal(url).catch(fail);
   },
 

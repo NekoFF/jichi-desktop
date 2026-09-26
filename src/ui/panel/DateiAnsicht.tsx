@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, ExternalLink, FolderSearch, MessageSquareQuote, Paperclip, Pencil, RefreshCw, Save, X } from "lucide-react";
 
-import { agent, type SheetPreview, type TextFile } from "../../core/index.ts";
+import { agent, t, type SheetPreview, type TextFile } from "../../core/index.ts";
 import { Markdown } from "../Markdown.tsx";
 import { Code } from "./Code.tsx";
 import { PdfAnsicht } from "./Pdf.tsx";
@@ -36,7 +36,7 @@ const MIT_VORSCHAU: Art[] = ["markdown", "html", "svg"];
 function Tabellen({ blaetter }: { blaetter: SheetPreview[] }) {
   const [i, setI] = useState(0);
   const b = blaetter[Math.min(i, blaetter.length - 1)];
-  if (!b) return <p className="panel-hinweis">Keine Tabelle.</p>;
+  if (!b) return <p className="panel-hinweis">{t("Keine Tabelle.")}</p>;
   return (
     <div className="tabellen">
       {blaetter.length > 1 && (
@@ -59,7 +59,7 @@ function Tabellen({ blaetter }: { blaetter: SheetPreview[] }) {
             ))}
           </tbody>
         </table>
-        {b.truncated && <p className="panel-hinweis">Nur die ersten 5 000 Zeilen.</p>}
+        {b.truncated && <p className="panel-hinweis">{t("Nur die ersten 5 000 Zeilen.")}</p>}
       </div>
     </div>
   );
@@ -106,7 +106,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
   // Hat jemand (jichi) die Datei geändert? Alle zwei Sekunden nachsehen, solange sie vorn liegt.
   useEffect(() => {
     if (!sichtbar) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       void agent.fileInfo(path).then((i) => {
         if (stand.current !== null && i.modified !== stand.current) {
           if (entwurf !== null) setGeaendert(true);
@@ -114,7 +114,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
         }
       }, () => {});
     }, 2000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [sichtbar, path, entwurf, laden]);
 
   function kurz(m: string) {
@@ -131,7 +131,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
       setEntwurf(null);
       const info = await agent.fileInfo(path);
       stand.current = info.modified;
-      kurz("gespeichert");
+      kurz(t("gespeichert"));
     } catch (e) {
       setFehler(e instanceof Error ? e.message : String(e));
     } finally {
@@ -159,7 +159,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
     if (quelle && at >= 0) {
       const von = quelle.slice(0, at).split("\n").length;
       const bis = von + sel.split("\n").length - 1;
-      wo = von === bis ? ` (Zeile ${von})` : ` (Zeilen ${von}–${bis})`;
+      wo = von === bis ? ` (${t("Zeile {n}", { n: von })})` : ` (${t("Zeilen {von}–{bis}", { von, bis })})`;
     }
     const zaun = sel.includes("```") ? "~~~" : "```";
     zurEingabe.send({ text: `In \`${path}\`${wo}:\n${zaun}\n${sel}\n${zaun}\n` });
@@ -177,49 +177,49 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
   return (
     <div className="datei-ansicht">
       <div className="panel-werkzeuge">
-        <button type="button" className="datei-pfad" title="Pfad kopieren" onClick={() => void navigator.clipboard.writeText(path).then(() => kurz("Pfad kopiert"), () => {})}>
+        <button type="button" className="datei-pfad" title={t("Pfad kopieren")} onClick={() => void navigator.clipboard.writeText(path).then(() => kurz(t("Pfad kopiert")), () => {})}>
           {path}
         </button>
         {meldung && <span className="panel-meldung"><Check size={12} /> {meldung}</span>}
         <span className="luecke" />
         {MIT_VORSCHAU.includes(art) && entwurf === null && (
-          <div className="umschalter" role="group" aria-label="Ansicht">
-            <button type="button" className={vorschau ? "gewaehlt" : ""} onClick={() => setVorschau(true)}>Vorschau</button>
-            <button type="button" className={!vorschau ? "gewaehlt" : ""} onClick={() => setVorschau(false)}>Quelltext</button>
+          <div className="umschalter" role="group" aria-label={t("Ansicht")}>
+            <button type="button" className={vorschau ? "gewaehlt" : ""} onClick={() => setVorschau(true)}>{t("Vorschau")}</button>
+            <button type="button" className={!vorschau ? "gewaehlt" : ""} onClick={() => setVorschau(false)}>{t("Quelltext")}</button>
           </div>
         )}
         {(auswahl || entwurf !== null) && (
-          <button type="button" className="knopf-klein" onClick={auswahlAnJichi} title="Markierten Ausschnitt in die Nachricht übernehmen">
-            <MessageSquareQuote size={13} /> An jichi
+          <button type="button" className="knopf-klein" onClick={auswahlAnJichi} title={t("Markierten Ausschnitt in die Nachricht übernehmen")}>
+            <MessageSquareQuote size={13} /> {t("An jichi")}
           </button>
         )}
         {entwurf === null ? (
           <>
             {bearbeitbar && (
-              <button type="button" className="knopf-klein knopf-symbol" title="Bearbeiten" aria-label="Bearbeiten" onClick={() => { setEntwurf(text!.text); setVorschau(false); }}>
+              <button type="button" className="knopf-klein knopf-symbol" title={t("Bearbeiten")} aria-label={t("Bearbeiten")} onClick={() => { setEntwurf(text!.text); setVorschau(false); }}>
                 <Pencil size={13} />
               </button>
             )}
-            <button type="button" className="knopf-klein knopf-symbol" title="Als Kontext an die nächste Nachricht hängen" aria-label="Als Kontext anhängen" onClick={() => zurEingabe.send({ datei: path })}>
+            <button type="button" className="knopf-klein knopf-symbol" title={t("Als Kontext an die nächste Nachricht hängen")} aria-label={t("Als Kontext anhängen")} onClick={() => zurEingabe.send({ datei: path })}>
               <Paperclip size={13} />
             </button>
-            <button type="button" className="knopf-klein knopf-symbol" title="Im Ordner zeigen" aria-label="Im Ordner zeigen" onClick={() => void agent.revealFile(path).catch(() => {})}>
+            <button type="button" className="knopf-klein knopf-symbol" title={t("Im Ordner zeigen")} aria-label={t("Im Ordner zeigen")} onClick={() => void agent.revealFile(path).catch(() => {})}>
               <FolderSearch size={13} />
             </button>
-            <button type="button" className="knopf-klein knopf-symbol" title="Mit dem Standardprogramm öffnen" aria-label="Extern öffnen" onClick={() => void agent.openFile(path).catch((e: Error) => setFehler(e.message))}>
+            <button type="button" className="knopf-klein knopf-symbol" title={t("Mit dem Standardprogramm öffnen")} aria-label={t("Extern öffnen")} onClick={() => void agent.openFile(path).catch((e: Error) => setFehler(e.message))}>
               <ExternalLink size={13} />
             </button>
-            <button type="button" className="knopf-klein knopf-symbol" title="Neu laden" aria-label="Neu laden" onClick={() => void laden()}>
+            <button type="button" className="knopf-klein knopf-symbol" title={t("Neu laden")} aria-label={t("Neu laden")} onClick={() => void laden()}>
               <RefreshCw size={13} />
             </button>
           </>
         ) : (
           <>
             <button type="button" className="knopf-klein" onClick={() => { setEntwurf(null); setGeaendert(false); }}>
-              <X size={13} /> Verwerfen
+              <X size={13} /> {t("Verwerfen")}
             </button>
             <button type="button" className="knopf-klein haupt-klein" disabled={speichert || entwurf === text?.text} onClick={() => void speichern()}>
-              <Save size={13} /> {speichert ? "Speichert …" : "Speichern"}
+              <Save size={13} /> {speichert ? t("Speichert …") : t("Speichern")}
             </button>
           </>
         )}
@@ -227,8 +227,8 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
 
       {geaendert && (
         <div className="panel-banner">
-          Die Datei wurde geändert, während du bearbeitest.
-          <button type="button" onClick={() => { setEntwurf(null); void laden(); }}>Neu laden (Entwurf verwerfen)</button>
+          {t("Die Datei wurde geändert, während du bearbeitest.")}
+          <button type="button" onClick={() => { setEntwurf(null); void laden(); }}>{t("Neu laden (Entwurf verwerfen)")}</button>
         </div>
       )}
       {fehler && <p className="panel-fehler">{fehler}</p>}
@@ -277,7 +277,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
             />
           )
         ) : text?.binary ? (
-          <p className="panel-hinweis">Keine Textdatei. „Extern öffnen“ zeigt sie im passenden Programm.</p>
+          <p className="panel-hinweis">{t("Keine Textdatei. „Extern öffnen“ zeigt sie im passenden Programm.")}</p>
         ) : (
           text && <Code text={text.text} path={path} line={line} />
         )}
@@ -289,7 +289,7 @@ export function DateiAnsicht({ path, line, sichtbar }: { path: string; line?: nu
 export function KopierKnopf({ text }: { text: string }) {
   const [ok, setOk] = useState(false);
   return (
-    <button type="button" className="knopf-klein knopf-symbol" title="Kopieren" aria-label="Kopieren"
+    <button type="button" className="knopf-klein knopf-symbol" title={t("Kopieren")} aria-label={t("Kopieren")}
       onClick={() => void navigator.clipboard.writeText(text).then(() => { setOk(true); setTimeout(() => setOk(false), 1200); }, () => {})}>
       {ok ? <Check size={13} /> : <Copy size={13} />}
     </button>

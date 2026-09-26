@@ -9,23 +9,24 @@
 
 import type { PermissionOption, ToolKind, ToolStatus } from "./protocol.ts";
 import type { MessageRole, Status } from "./state.ts";
+import { locale, t } from "./i18n.ts";
 
 export type Tone = "neutral" | "accent" | "success" | "warning" | "danger";
 
 export function statusLabel(status: Status): string {
   switch (status) {
     case "offline":
-      return "nicht verbunden";
+      return t("nicht verbunden");
     case "starting":
-      return "startet";
+      return t("startet");
     case "ready":
-      return "bereit";
+      return t("bereit");
     case "busy":
-      return "arbeitet";
+      return t("arbeitet");
     case "cancelling":
-      return "bricht ab";
+      return t("bricht ab");
     case "error":
-      return "Fehler";
+      return t("Fehler");
   }
 }
 
@@ -48,11 +49,11 @@ export function statusTone(status: Status): Tone {
 export function roleLabel(role: MessageRole): string {
   switch (role) {
     case "user":
-      return "Du";
+      return t("Du");
     case "agent":
       return "jichi";
     case "thought":
-      return "Überlegung";
+      return t("Überlegung");
   }
 }
 
@@ -60,23 +61,23 @@ export function roleLabel(role: MessageRole): string {
 export function toolKindLabel(kind: ToolKind): string {
   switch (kind) {
     case "read":
-      return "liest";
+      return t("liest");
     case "edit":
-      return "ändert";
+      return t("ändert");
     case "delete":
-      return "löscht";
+      return t("löscht");
     case "move":
-      return "verschiebt";
+      return t("verschiebt");
     case "search":
-      return "sucht";
+      return t("sucht");
     case "execute":
-      return "führt aus";
+      return t("führt aus");
     case "think":
-      return "denkt";
+      return t("denkt");
     case "fetch":
-      return "ruft ab";
+      return t("ruft ab");
     default:
-      return "Werkzeug";
+      return t("Werkzeug");
   }
 }
 
@@ -97,13 +98,13 @@ export function toolKindTone(kind: ToolKind): Tone {
 export function toolStatusLabel(status: ToolStatus): string {
   switch (status) {
     case "pending":
-      return "wartet";
+      return t("wartet");
     case "in_progress":
-      return "läuft";
+      return t("läuft");
     case "completed":
-      return "fertig";
+      return t("fertig");
     case "failed":
-      return "fehlgeschlagen";
+      return t("fehlgeschlagen");
   }
 }
 
@@ -138,15 +139,15 @@ export function permissionTone(option: PermissionOption): Tone {
  */
 export function relativeTime(seconds: number, now = Date.now()): string {
   const diff = Math.max(0, Math.round(now / 1000 - seconds));
-  if (diff < 60) return "gerade eben";
+  if (diff < 60) return t("gerade eben");
   const minutes = Math.round(diff / 60);
-  if (minutes < 60) return `vor ${minutes} Min.`;
+  if (minutes < 60) return t("vor {n} Min.", { n: minutes });
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `vor ${hours} Std.`;
+  if (hours < 24) return t("vor {n} Std.", { n: hours });
   const days = Math.round(hours / 24);
-  if (days === 1) return "gestern";
-  if (days < 30) return `vor ${days} Tagen`;
-  return new Date(seconds * 1000).toLocaleDateString("de-DE", {
+  if (days === 1) return t("gestern");
+  if (days < 30) return t("vor {n} Tagen", { n: days });
+  return new Date(seconds * 1000).toLocaleDateString(locale(), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

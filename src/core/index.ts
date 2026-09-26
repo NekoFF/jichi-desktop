@@ -18,6 +18,7 @@
 
 export { Agent, agent } from "./agent.ts";
 export { dateiname, transcriptMarkdown } from "./export.ts";
+export { locale, onSprache, setSprache, sprache, SPRACHEN, systemSprache, t, type Sprache } from "./i18n.ts";
 export { DEFAULT_SPEECH, DEFAULT_TRANSCRIBE, speechModel, sprechbar } from "./speech.ts";
 export { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 export {

@@ -26,6 +26,7 @@ import type {
   StoredSession,
   TermExit,
 } from "./transport.ts";
+import { t } from "./i18n.ts";
 
 /**
  * Obergrenze für die gespeicherte Ausgabe eines Werkzeugs.
@@ -255,17 +256,17 @@ export function blockToText(block: ContentBlock | undefined | null): string {
     case "text":
       return block.text ?? "";
     case "image":
-      return `[Bild ${block.mimeType ?? "unbekannt"}]`;
+      return t("[Bild {typ}]", { typ: block.mimeType ?? t("unbekannt") });
     case "audio":
-      return `[Audio ${block.mimeType ?? "unbekannt"}]`;
+      return t("[Audio {typ}]", { typ: block.mimeType ?? t("unbekannt") });
     case "resource":
-      return block.resource?.text ?? `[Ressource ${block.resource?.uri ?? "?"}]`;
+      return block.resource?.text ?? t("[Ressource {uri}]", { uri: block.resource?.uri ?? "?" });
     case "resource_link":
-      return `[Verweis ${block.name ?? block.uri}]`;
+      return t("[Verweis {name}]", { name: block.name ?? block.uri });
     case "terminal":
       return `[Terminal ${block.terminalId}]`;
     default:
-      return `[${(block as { type?: string }).type ?? "unbekannt"}]`;
+      return `[${(block as { type?: string }).type ?? t("unbekannt")}]`;
   }
 }
 

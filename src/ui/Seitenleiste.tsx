@@ -14,12 +14,13 @@ import {
 import {
   agent,
   relativeTime,
+  t,
   type ChatHit,
   type StoredSession,
   type Snapshot,
 } from "../core/index.ts";
 import { panel } from "./panel/store.ts";
-import { kurz, nachricht } from "./util.ts";
+import { kurz, nachricht, useSprache } from "./util.ts";
 
 // ── Seitenleiste ─────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ export function Seitenleiste({
   const [loeschfehler, setLoeschfehler] = useState<string | null>(null);
   const abbrechen = useRef<HTMLButtonElement>(null);
   const [wechselFehler, setWechselFehler] = useState<string | null>(null);
+  useSprache();
 
   async function wechseln(aktion: () => Promise<void>) {
     setWechselFehler(null);
@@ -56,10 +58,10 @@ export function Seitenleiste({
   useEffect(() => {
     const q = suche.trim();
     if (q.length < 2) return setTreffer([]);
-    const t = setTimeout(() => void agent.searchChats(q).then(setTreffer, () => setTreffer([])), 220);
-    return () => clearTimeout(t);
+    const zeit = setTimeout(() => void agent.searchChats(q).then(setTreffer, () => setTreffer([])), 220);
+    return () => clearTimeout(zeit);
   }, [suche]);
-  const imInhalt = treffer.filter((t) => !gefunden.some((g) => g.id === t.id));
+  const imInhalt = treffer.filter((h) => !gefunden.some((g) => g.id === h.id));
 
   const [menue, setMenue] = useState<string | null>(null);
   const [umbenennen, setUmbenennen] = useState<{ id: string; text: string } | null>(null);
@@ -87,7 +89,7 @@ export function Seitenleiste({
           className="sitzung-name-feld"
           autoFocus
           value={umbenennen.text}
-          aria-label="Neuer Name"
+          aria-label={t("Neuer Name")}
           onChange={(e) => setUmbenennen({ id: s.id, text: e.target.value })}
           onBlur={() => void namenSpeichern()}
           onKeyDown={(e) => {
@@ -109,7 +111,7 @@ export function Seitenleiste({
       )}
       <button
         className="sitzung-mehr"
-        aria-label={`Aktionen für ${s.title}`}
+        aria-label={t("Aktionen für {titel}", { titel: s.title })}
         aria-haspopup="menu"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={() => setMenue((m) => (m === s.id ? null : s.id))}
@@ -119,15 +121,15 @@ export function Seitenleiste({
       {menue === s.id && (
         <div className="menue sitzung-menue" role="menu" onMouseDown={(e) => e.stopPropagation()}>
           <button type="button" role="menuitem" className="menue-punkt" onClick={() => { setMenue(null); setUmbenennen({ id: s.id, text: s.title }); }}>
-            <span className="menue-icon"><Pencil size={14} /></span><span className="menue-titel">Umbenennen</span>
+            <span className="menue-icon"><Pencil size={14} /></span><span className="menue-titel">{t("Umbenennen")}</span>
           </button>
           <button type="button" role="menuitem" className="menue-punkt" onClick={() => { setMenue(null); void wechseln(() => agent.pinChat(s.id, !s.pinned)); }}>
             <span className="menue-icon">{s.pinned ? <PinOff size={14} /> : <Pin size={14} />}</span>
-            <span className="menue-titel">{s.pinned ? "Lösen" : "Anheften"}</span>
+            <span className="menue-titel">{s.pinned ? t("Lösen") : t("Anheften")}</span>
           </button>
           <button type="button" role="menuitem" className="menue-punkt gefahr" disabled={!snap.canSwitch}
             onClick={() => { setMenue(null); setLoeschfehler(null); setZuLoeschen(s); }}>
-            <span className="menue-icon"><Trash2 size={14} /></span><span className="menue-titel">Löschen</span>
+            <span className="menue-icon"><Trash2 size={14} /></span><span className="menue-titel">{t("Löschen")}</span>
           </button>
         </div>
       )}
@@ -175,38 +177,38 @@ export function Seitenleiste({
           <input
             value={suche}
             onChange={(e) => setSuche(e.target.value)}
-            placeholder="Chats durchsuchen"
-            aria-label="Chats nach Titel und Inhalt durchsuchen"
+            placeholder={t("Chats durchsuchen")}
+            aria-label={t("Chats nach Titel und Inhalt durchsuchen")}
           />
         </div>
 
         <button className="zeile" disabled={!snap.canSwitch} onClick={() => void wechseln(() => agent.newSession())}>
           <Plus size={14} />
-          <span>Neuer Chat</span>
+          <span>{t("Neuer Chat")}</span>
           <kbd>{kurz("N")}</kbd>
         </button>
 
         {wechselFehler && <div className="leer-hinweis fehler" role="alert">{wechselFehler}</div>}
-        {angeheftet.length > 0 && <div className="gruppe">Angeheftet</div>}
+        {angeheftet.length > 0 && <div className="gruppe">{t("Angeheftet")}</div>}
         {angeheftet.map(zeile)}
-        <div className="gruppe">{suche.trim() ? "Treffer im Titel" : "Sitzungen"}</div>
+        <div className="gruppe">{suche.trim() ? t("Treffer im Titel") : t("Sitzungen")}</div>
         {uebrige.length === 0 ? (
           <div className="leer-hinweis">
-            {snap.sessions.length ? (suche.trim() ? "Kein Titel passt" : "Alle angeheftet") : "Noch keine Sitzung"}
+            {snap.sessions.length ? (suche.trim() ? t("Kein Titel passt") : t("Alle angeheftet")) : t("Noch keine Sitzung")}
           </div>
         ) : (
           uebrige.map(zeile)
         )}
         {imInhalt.length > 0 && (
           <>
-            <div className="gruppe">Im Inhalt</div>
-            {imInhalt.map((t) => {
-              const s = snap.sessions.find((x) => x.id === t.id);
+            <div className="gruppe">{t("Im Inhalt")}</div>
+            {imInhalt.map((h) => {
+              const s = snap.sessions.find((x) => x.id === h.id);
               return (
-                <button key={t.id} className="treffer" disabled={!snap.canSwitch && t.id !== snap.sessionId}
-                  onClick={() => t.id !== snap.sessionId && void wechseln(() => agent.loadSession(t.id))}>
-                  <span className="treffer-titel">{s?.title ?? "Chat"}</span>
-                  <span className="treffer-text">{t.snippet}</span>
+                <button key={h.id} className="treffer" disabled={!snap.canSwitch && h.id !== snap.sessionId}
+                  onClick={() => h.id !== snap.sessionId && void wechseln(() => agent.loadSession(h.id))}>
+                  <span className="treffer-titel">{s?.title ?? t("Chat")}</span>
+                  <span className="treffer-text">{h.snippet}</span>
                 </button>
               );
             })}
@@ -217,7 +219,7 @@ export function Seitenleiste({
       <div className="seite-fuss">
         <button className="zeile" onClick={oeffneEinstellungen}>
           <Settings size={14} />
-          <span>Einstellungen</span>
+          <span>{t("Einstellungen")}</span>
         </button>
       </div>
       {zuLoeschen && (
@@ -226,13 +228,13 @@ export function Seitenleiste({
         }}>
           <div className="tafel loesch-dialog" role="alertdialog" aria-modal="true"
             aria-labelledby="loesch-titel" aria-describedby="loesch-text">
-            <h2 id="loesch-titel">Chat löschen?</h2>
-            <p id="loesch-text">„{zuLoeschen.title}“ wird dauerhaft aus deiner Chatliste entfernt.</p>
+            <h2 id="loesch-titel">{t("Chat löschen?")}</h2>
+            <p id="loesch-text">{t("„{titel}“ wird dauerhaft aus deiner Chatliste entfernt.", { titel: zuLoeschen.title })}</p>
             {loeschfehler && <p className="hinweis fehler" role="alert">{loeschfehler}</p>}
             <div className="tafel-fuss">
-              <button ref={abbrechen} className="knopf" disabled={loescht} onClick={() => setZuLoeschen(null)}>Abbrechen</button>
+              <button ref={abbrechen} className="knopf" disabled={loescht} onClick={() => setZuLoeschen(null)}>{t("Abbrechen")}</button>
               <button className="knopf gefahr" disabled={loescht} onClick={() => void loeschen()}>
-                {loescht ? "Löscht …" : "Chat löschen"}
+                {loescht ? t("Löscht …") : t("Chat löschen")}
               </button>
             </div>
           </div>

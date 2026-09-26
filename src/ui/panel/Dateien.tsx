@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, File, FileSpreadsheet, FileText, Folder, FolderOpen, Image, RefreshCw, Search } from "lucide-react";
 
-import { agent, type DirEntry, type Snapshot } from "../../core/index.ts";
+import { agent, t, type DirEntry, type Snapshot } from "../../core/index.ts";
 import { panel } from "./store.ts";
 
 function Symbol({ e, offen }: { e: DirEntry; offen: boolean }) {
@@ -64,9 +64,9 @@ export function Dateien({ snap }: { snap: Snapshot }) {
   if (!snap.hasProject) {
     return (
       <div className="panel-leer">
-        <p>Noch kein Projekt geöffnet.</p>
+        <p>{t("Noch kein Projekt geöffnet.")}</p>
         <button type="button" className="knopf haupt" disabled={!snap.canSwitch} onClick={() => void agent.pickWorkspace().catch(() => {})}>
-          Projekt öffnen
+          {t("Projekt öffnen")}
         </button>
       </div>
     );
@@ -102,16 +102,16 @@ export function Dateien({ snap }: { snap: Snapshot }) {
       <div className="dateien-kopf">
         <div className="dateien-suche">
           <Search size={13} />
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Dateien filtern" aria-label="Dateien filtern" />
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("Dateien filtern")} aria-label={t("Dateien filtern")} />
         </div>
-        <button type="button" className="knopf-klein knopf-symbol" title="Neu laden" aria-label="Neu laden" onClick={() => { for (const p of offen) void laden(p); }}>
+        <button type="button" className="knopf-klein knopf-symbol" title={t("Neu laden")} aria-label={t("Neu laden")} onClick={() => { for (const p of offen) void laden(p); }}>
           <RefreshCw size={13} />
         </button>
       </div>
       {fehler && <p className="panel-fehler">{fehler}</p>}
       <div className="baum" role="tree">
         {(kinder[""] ?? []).map((e) => zeile(e, 0))}
-        {kinder[""]?.length === 0 && <p className="panel-hinweis">Der Ordner ist leer.</p>}
+        {kinder[""]?.length === 0 && <p className="panel-hinweis">{t("Der Ordner ist leer.")}</p>}
       </div>
     </div>
   );

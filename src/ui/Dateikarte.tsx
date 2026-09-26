@@ -8,14 +8,21 @@
 import { useEffect, useState } from "react";
 import { Download, ExternalLink, File, FileImage, FileSpreadsheet, FileText, FolderSearch } from "lucide-react";
 
-import { agent, type FileInfo } from "../core/index.ts";
+import { agent, t, type FileInfo } from "../core/index.ts";
 import { panel } from "./panel/store.ts";
+import { useSprache } from "./util.ts";
 
+/** Eigennamen; „Tabelle“ und „Bild“ übersetzt `artVon` beim Zeichnen. */
 const ART: Record<string, string> = {
-  pdf: "PDF", docx: "Word", doc: "Word", xlsx: "Excel", xls: "Excel", ods: "Tabelle", odt: "Text",
-  pptx: "PowerPoint", csv: "CSV", md: "Markdown", txt: "Text", json: "JSON", png: "Bild",
-  jpg: "Bild", jpeg: "Bild", svg: "Bild", webp: "Bild", gif: "Bild",
+  pdf: "PDF", docx: "Word", doc: "Word", xlsx: "Excel", xls: "Excel", odt: "Text",
+  pptx: "PowerPoint", csv: "CSV", md: "Markdown", txt: "Text", json: "JSON",
 };
+
+function artVon(e: string): string {
+  if (e === "ods") return t("Tabelle");
+  if (["png", "jpg", "jpeg", "svg", "webp", "gif"].includes(e)) return t("Bild");
+  return ART[e] ?? e.toUpperCase();
+}
 
 function endung(name: string): string {
   return /\.([^.]+)$/.exec(name)?.[1]?.toLowerCase() ?? "";
@@ -36,6 +43,7 @@ function groesse(bytes: number): string {
 }
 
 export function Dateikarte({ path, version }: { path: string; version: string }) {
+  useSprache();
   const [info, setInfo] = useState<FileInfo | null>(null);
   const [fehlt, setFehlt] = useState(false);
   const [meldung, setMeldung] = useState<string | null>(null);
@@ -64,9 +72,9 @@ export function Dateikarte({ path, version }: { path: string; version: string })
     }
   }
 
-  if (fehlt) return <div className="dateikarte weg">{path} ist nicht mehr da.</div>;
+  if (fehlt) return <div className="dateikarte weg">{t("{path} ist nicht mehr da.", { path })}</div>;
   if (!info) return null;
-  const art = ART[endung(info.name)] ?? endung(info.name).toUpperCase();
+  const art = artVon(endung(info.name));
 
   return (
     <div className="dateikarte">
@@ -74,7 +82,7 @@ export function Dateikarte({ path, version }: { path: string; version: string })
         type="button"
         className="dateikarte-haupt"
         onClick={() => panel.datei(path)}
-        title={`${info.path} in der Seitenleiste ansehen`}
+        title={t("{path} in der Seitenleiste ansehen", { path: info.path })}
       >
         <span className={`dateikarte-symbol art-${endung(info.name)}`}>
           <Symbol name={info.name} />
@@ -89,18 +97,18 @@ export function Dateikarte({ path, version }: { path: string; version: string })
       </button>
       <div className="dateikarte-aktionen">
         {info.openable && (
-          <button type="button" onClick={() => void tun(() => agent.openFile(path))} title="Mit dem Standardprogramm öffnen" aria-label="Extern öffnen">
+          <button type="button" onClick={() => void tun(() => agent.openFile(path))} title={t("Mit dem Standardprogramm öffnen")} aria-label={t("Extern öffnen")}>
             <ExternalLink size={15} />
           </button>
         )}
-        <button type="button" onClick={() => void tun(() => agent.revealFile(path))} title="Im Ordner zeigen" aria-label="Im Ordner zeigen">
+        <button type="button" onClick={() => void tun(() => agent.revealFile(path))} title={t("Im Ordner zeigen")} aria-label={t("Im Ordner zeigen")}>
           <FolderSearch size={15} />
         </button>
         <button
           type="button"
-          onClick={() => void tun(() => agent.saveFileAs(path, info.name), "gespeichert")}
-          title="Kopie speichern unter …"
-          aria-label="Kopie speichern unter"
+          onClick={() => void tun(() => agent.saveFileAs(path, info.name), t("gespeichert"))}
+          title={t("Kopie speichern unter …")}
+          aria-label={t("Kopie speichern unter")}
         >
           <Download size={15} />
         </button>

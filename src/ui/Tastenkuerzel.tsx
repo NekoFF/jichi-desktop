@@ -3,44 +3,48 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 
+import { t } from "../core/index.ts";
 import { IS_MAC } from "./util.ts";
 
-const M = IS_MAC ? "⌘" : "Strg";
 const A = IS_MAC ? "⌥" : "Alt";
 
-const GRUPPEN: Array<{ titel: string; tasten: Array<[string, string]> }> = [
-  {
-    titel: "Chat",
-    tasten: [
-      [`${M} N`, "Neuer Chat"],
-      ["Enter", "Senden"],
-      ["Umschalt Enter", "Neue Zeile"],
-      [`${A} ↑ / ${A} ↓`, "Zur vorigen / nächsten Frage springen"],
-      ["Esc", "Menü oder Dialog schließen"],
-    ],
-  },
-  {
-    titel: "Seitenleiste",
-    tasten: [
-      [`${M} ⇧ E`, "Dateien"],
-      [`${M} ⇧ D`, "Änderungen"],
-      ["Strg `", "Terminal"],
-      [`${M} ⇧ B`, "Browser"],
-      [`${M} \\`, "Vorderes Fenster schließen"],
-    ],
-  },
-  {
-    titel: "Datei bearbeiten",
-    tasten: [
-      [`${M} S`, "Speichern"],
-      ["Tab", "Einrücken"],
-    ],
-  },
-  {
-    titel: "Hilfe",
-    tasten: [[`${M} /`, "Diese Übersicht"]],
-  },
-];
+/** Zur Zeit des Zeichnens gebaut, damit die Texte der aktuellen Sprache folgen. */
+function gruppen(): Array<{ titel: string; tasten: Array<[string, string]> }> {
+  const M = IS_MAC ? "⌘" : t("Strg");
+  return [
+    {
+      titel: t("Chat"),
+      tasten: [
+        [`${M} N`, t("Neuer Chat")],
+        ["Enter", t("Senden")],
+        [`${t("Umschalt")} Enter`, t("Neue Zeile")],
+        [`${A} ↑ / ${A} ↓`, t("Zur vorigen / nächsten Frage springen")],
+        ["Esc", t("Menü oder Dialog schließen")],
+      ],
+    },
+    {
+      titel: t("Seitenleiste"),
+      tasten: [
+        [`${M} ⇧ E`, t("Dateien")],
+        [`${M} ⇧ D`, t("Änderungen")],
+        [`${t("Strg")} \``, "Terminal"],
+        [`${M} ⇧ B`, "Browser"],
+        [`${M} \\`, t("Vorderes Fenster schließen")],
+      ],
+    },
+    {
+      titel: t("Datei bearbeiten"),
+      tasten: [
+        [`${M} S`, t("Speichern")],
+        ["Tab", t("Einrücken")],
+      ],
+    },
+    {
+      titel: t("Hilfe"),
+      tasten: [[`${M} /`, t("Diese Übersicht")]],
+    },
+  ];
+}
 
 export function Tastenkuerzel({ schliessen }: { schliessen: () => void }) {
   useEffect(() => {
@@ -52,18 +56,18 @@ export function Tastenkuerzel({ schliessen }: { schliessen: () => void }) {
     <div className="ueber" onMouseDown={(e) => e.target === e.currentTarget && schliessen()}>
       <div className="tafel tasten-tafel" role="dialog" aria-modal="true" aria-labelledby="tasten-titel">
         <div className="tasten-kopf">
-          <h2 id="tasten-titel">Tastenkürzel</h2>
-          <button type="button" className="knopf-klein knopf-symbol" aria-label="Schließen" onClick={schliessen}><X size={14} /></button>
+          <h2 id="tasten-titel">{t("Tastenkürzel")}</h2>
+          <button type="button" className="knopf-klein knopf-symbol" aria-label={t("Schließen")} onClick={schliessen}><X size={14} /></button>
         </div>
         <div className="tasten-gruppen">
-          {GRUPPEN.map((g) => (
+          {gruppen().map((g) => (
             <section key={g.titel}>
               <h3>{g.titel}</h3>
               <dl>
-                {g.tasten.map(([k, t]) => (
+                {g.tasten.map(([k, was]) => (
                   <div key={k}>
                     <dt>{k.split(" ").map((x, i) => (x === "/" ? <span key={i} className="tasten-oder">/</span> : <kbd key={i}>{x}</kbd>))}</dt>
-                    <dd>{t}</dd>
+                    <dd>{was}</dd>
                   </div>
                 ))}
               </dl>

@@ -10,6 +10,8 @@
  * den Transport; hier wird nur gerechnet.
  */
 
+import { t } from "./i18n.ts";
+
 /** Eine Ersetzung, wie `edit_file` und `apply_patch` sie beschreiben. */
 export interface PlannedEdit {
   oldString: string;
@@ -73,7 +75,7 @@ export function planOf(rawInput: unknown): Plan {
     const sheets = roh.map((b, i) => {
       const o = (b ?? {}) as Record<string, unknown>;
       const rows = Array.isArray(o.rows) ? o.rows.filter(Array.isArray) as unknown[][] : [];
-      return { name: str(o.name) ?? `Blatt ${i + 1}`, rows };
+      return { name: str(o.name) ?? t("Blatt {n}", { n: i + 1 }), rows };
     });
     return { kind: "sheets", path: str(a.path)!, sheets };
   }

@@ -12,7 +12,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { Plus, RotateCcw } from "lucide-react";
 
-import { agent, type Snapshot } from "../../core/index.ts";
+import { agent, t, type Snapshot } from "../../core/index.ts";
 import { panel, type PanelTab } from "./store.ts";
 
 // Ein Hörer für alle PTYs, verteilt nach Kennung.
@@ -111,8 +111,8 @@ function EigenesTerminal({ sichtbar }: { sichtbar: boolean }) {
       <div className="xterm-box" ref={box} />
       {beendet && (
         <div className="terminal-ende-leiste">
-          Die Shell wurde beendet.
-          <button type="button" className="knopf-klein" onClick={() => setRunde((r) => r + 1)}><RotateCcw size={12} /> Neu starten</button>
+          {t("Die Shell wurde beendet.")}
+          <button type="button" className="knopf-klein" onClick={() => setRunde((r) => r + 1)}><RotateCcw size={12} /> {t("Neu starten")}</button>
         </div>
       )}
     </div>
@@ -141,16 +141,16 @@ function AgentTerminal({ id, snap }: { id: string; snap: Snapshot }) {
   }, [id]);
 
   useEffect(() => {
-    const t = x.current;
-    if (!t || !view) return;
+    const z = x.current;
+    if (!z || !view) return;
     // Nur das Neue schreiben; bei gekürzter Ausgabe von vorn.
-    if (view.output.length < t.geschrieben) {
-      t.term.reset();
-      t.geschrieben = 0;
+    if (view.output.length < z.geschrieben) {
+      z.term.reset();
+      z.geschrieben = 0;
     }
-    const neu = view.output.slice(t.geschrieben).replace(/\r?\n/g, "\r\n");
-    if (neu) t.term.write(neu);
-    t.geschrieben = view.output.length;
+    const neu = view.output.slice(z.geschrieben).replace(/\r?\n/g, "\r\n");
+    if (neu) z.term.write(neu);
+    z.geschrieben = view.output.length;
   }, [view]);
 
   const ende = view?.exit;
@@ -158,7 +158,7 @@ function AgentTerminal({ id, snap }: { id: string; snap: Snapshot }) {
     <div className="terminal-fenster">
       <div className="xterm-box" ref={box} />
       <div className="terminal-ende-leiste">
-        {!view ? "Dieser Befehl ist nicht mehr da." : !ende ? "jichi führt den Befehl aus …" : ende.exitCode === 0 ? "beendet" : `beendet mit Code ${ende.exitCode ?? "?"}`}
+        {!view ? t("Dieser Befehl ist nicht mehr da.") : !ende ? t("jichi führt den Befehl aus …") : ende.exitCode === 0 ? t("beendet") : t("beendet mit Code {code}", { code: ende.exitCode ?? "?" })}
       </div>
     </div>
   );
@@ -166,13 +166,13 @@ function AgentTerminal({ id, snap }: { id: string; snap: Snapshot }) {
 
 export function TerminalFenster({ tab, snap, sichtbar }: { tab: Extract<PanelTab, { kind: "terminal" }>; snap: Snapshot; sichtbar: boolean }) {
   if (!snap.hasProject && !tab.agentTerminal) {
-    return <div className="panel-leer"><p>Öffne zuerst ein Projekt — das Terminal startet dort.</p></div>;
+    return <div className="panel-leer"><p>{t("Öffne zuerst ein Projekt — das Terminal startet dort.")}</p></div>;
   }
   return (
     <div className="terminal-wrap">
       {tab.agentTerminal ? <AgentTerminal id={tab.agentTerminal} snap={snap} /> : <EigenesTerminal sichtbar={sichtbar} />}
       {!tab.agentTerminal && (
-        <button type="button" className="terminal-neu" title="Weiteres Terminal" aria-label="Weiteres Terminal" onClick={() => panel.terminal(undefined, true)}>
+        <button type="button" className="terminal-neu" title={t("Weiteres Terminal")} aria-label={t("Weiteres Terminal")} onClick={() => panel.terminal(undefined, true)}>
           <Plus size={13} />
         </button>
       )}
