@@ -177,7 +177,7 @@ interface Snapshot {
 
 ### Freistehend (floating)
 
-- Linke Sidebar: Weiße Fläche,得abgestzte Oberfläche
+- Linke Sidebar: Weiße Fläche, abgesetzte Oberfläche
 - Rechte Hauptfläche: Leicht grau, leichter Kontrast
 
 ### Klassisch
