@@ -4,21 +4,124 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 lerna-debug.log*
+.pnpm-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Dependencies
+node_modules/
+.jichi/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+dist-ssr/
 *.local
+.cache/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+
+# Tauri
+src-tauri/target/
+src-tauri/*.rs.bk
+src-tauri/*.pdb
+src-tauri/*.dll
+src-tauri/*.exe
+src-tauri/*.so
+src-tauri/*.dylib
+src-tauri/*.a
+src-tauri/*.lib
+src-tauri/*.pdb
+src-tauri/*.ilk
+src-tauri/*.manifest
+src-tauri/*.exp
+src-tauri/*.bin
+src-tauri/debug/
+src-tauri/release/
+src-tauri/build/
+
+# Rust
+**/target/
+**/*.o
+**/*.pdb
+**/*.dll
+**/*.exe
+**/*.so
+**/*.dylib
+**/*.a
+**/*.lib
+**/*.pdb
+**/*.ilk
+**/*.manifest
+**/*.exp
+**/*.bin
+
+# Test coverage
+coverage/
+.nyc_output/
+.coverage
+
+# TypeScript
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# Debug
+.vscode-test/
+.webview/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Security
+.secrets/
+.secrets.*
+secret*
+apikey.txt
+api-key.txt
+
+# macOS
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary Keychain location (for reference only - actual key storage is handled separately)
+# ~/Library/Keychains/
+
+# Project specific
+.local/
+jichi-*.patch
+jichi-macos-*
