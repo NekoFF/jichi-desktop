@@ -17,6 +17,7 @@
  */
 
 import { speechModel, sprechbar } from "./speech.ts";
+import type { DokuStatus, DokuTreffer } from "./doku.ts";
 import { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 import {
   clientCapabilities,
@@ -219,6 +220,52 @@ export class Agent {
     const status = await this.#transport.documentsSet(enable);
     this.#set({ documents: status });
     await this.#relaunchKeepingChat();
+  }
+
+  // ── jichis Dokumentation ───────────────────────────────────────────────────
+  // Sie liegt im Quellbaum neben dem Programm (make install liefert sie nicht
+  // mit) — darum fragt jede Methode mit dem Programm des Agenten.
+
+  #programm(): string {
+    return this.#config?.program || "jichi";
+  }
+
+  dokuStatus(): Promise<DokuStatus> {
+    return this.#transport.jichiDokuStatus(this.#programm());
+  }
+
+  /** Den Ordner selbst wählen, wenn er nicht neben jichi liegt (Windows: in WSL). */
+  async dokuOrdnerWaehlen(): Promise<DokuStatus | null> {
+    const pfad = await this.#transport.pickDirectory(t("Ordner der jichi-Dokumentation (docs/)"));
+    return pfad ? this.#transport.jichiDokuPfad(this.#programm(), pfad) : null;
+  }
+
+  dokuOrtVergessen(): Promise<DokuStatus> {
+    return this.#transport.jichiDokuPfad(this.#programm(), null);
+  }
+
+  dokuListe(): Promise<string[]> {
+    return this.#transport.jichiDokuListe(this.#programm());
+  }
+
+  dokuLesen(seite: string): Promise<string> {
+    return this.#transport.jichiDokuLesen(this.#programm(), seite);
+  }
+
+  dokuSuchen(anfrage: string): Promise<DokuTreffer[]> {
+    return this.#transport.jichiDokuSuchen(this.#programm(), anfrage);
+  }
+
+  /**
+   * jichi die Dokumentation als Nachschlagewerk geben (`docs` in `~/.jichi`,
+   * mit Sicherung). jichi liest das beim Start — ein laufender Agent startet
+   * darum neu, der offene Chat bleibt.
+   */
+  async dokuFuerAgent(an: boolean): Promise<DokuStatus> {
+    if (this.#busy()) throw new Error(BUSY());
+    const status = await this.#transport.jichiDokuFuerAgent(this.#programm(), an);
+    await this.#relaunchKeepingChat();
+    return status;
   }
 
   // ── Was der Schlüssel erreicht ─────────────────────────────────────────────

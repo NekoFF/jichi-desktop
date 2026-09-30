@@ -1,7 +1,8 @@
 /** Das Menü des offenen Chats in der Kopfzeile: exportieren, Tastenkürzel. */
 
 import { useEffect, useRef, useState } from "react";
-import { FileDown, FileText, FileType2, Keyboard, MoreHorizontal } from "lucide-react";
+import { BookOpen, FileDown, FileText, FileType2, Keyboard, MoreHorizontal } from "lucide-react";
+import { panel } from "./panel/store.ts";
 
 import { agent, t, type ExportFormat, type Snapshot } from "../core/index.ts";
 import { nachricht } from "./util.ts";
@@ -52,6 +53,7 @@ export function ChatMenue({ snap, tasten }: { snap: Snapshot; tasten: () => void
           {punkt(<FileType2 size={15} />, "Word", ".docx", () => void exportieren("docx"), leer)}
           {punkt(<FileDown size={15} />, "PDF", ".pdf", () => void exportieren("pdf"), leer)}
           <div className="menue-gruppe">{t("Hilfe")}</div>
+          {punkt(<BookOpen size={15} />, t("jichi-Dokumentation"), /Mac/i.test(navigator.userAgent) ? "⌘⇧H" : `${t("Strg")}+${t("Umschalt")}+H`, () => { setOffen(false); panel.doku(); })}
           {punkt(<Keyboard size={15} />, t("Tastenkürzel"), /Mac/i.test(navigator.userAgent) ? "⌘/" : `${t("Strg")}+/`, () => { setOffen(false); tasten(); })}
         </div>
       )}

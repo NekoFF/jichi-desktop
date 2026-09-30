@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { FileCode2, FolderTree, GitCompare, Globe, Maximize2, Minimize2, Plus, Sparkles, SquareTerminal, X } from "lucide-react";
+import { BookOpen, FileCode2, FolderTree, GitCompare, Globe, Maximize2, Minimize2, Plus, Sparkles, SquareTerminal, X } from "lucide-react";
 
 import { t, type Snapshot } from "../../core/index.ts";
 import { useSprache } from "../util.ts";
@@ -17,6 +17,7 @@ import { Aenderungen } from "./Aenderungen.tsx";
 import { TerminalFenster } from "./Terminal.tsx";
 import { BrowserFenster } from "./Browser.tsx";
 import { ArtefaktFenster } from "./Artefakt.tsx";
+import { DokuFenster } from "./Doku.tsx";
 
 export const usePanel = () => useSyncExternalStore(panel.subscribe, panel.getSnapshot);
 
@@ -34,6 +35,8 @@ function titel(tab: PanelTab): { icon: ReactNode; text: string } {
       return { icon: <Globe size={13} />, text: tab.url ? hostOf(tab.url) : t("Browser") };
     case "artefakt":
       return { icon: <Sparkles size={13} />, text: tab.title };
+    case "doku":
+      return { icon: <BookOpen size={13} />, text: t("jichi-Doku") };
   }
 }
 
@@ -75,6 +78,7 @@ function NeuMenue() {
           {punkt(<GitCompare size={15} />, t("Änderungen"), `${kurz}⇧D`, () => panel.aenderungen())}
           {punkt(<SquareTerminal size={15} />, t("Terminal"), `${t("Strg")}+\``, () => panel.terminal(undefined, true))}
           {punkt(<Globe size={15} />, t("Browser"), `${kurz}⇧B`, () => panel.browser())}
+          {punkt(<BookOpen size={15} />, t("jichi-Dokumentation"), `${kurz}⇧H`, () => panel.doku())}
         </div>
       )}
     </div>
@@ -147,6 +151,7 @@ export function Panel({ snap }: { snap: Snapshot }) {
               {tab.kind === "terminal" && <TerminalFenster tab={tab} snap={snap} sichtbar={sichtbar} />}
               {tab.kind === "browser" && <BrowserFenster tab={tab} sichtbar={sichtbar && !p.overlay && !zieht} />}
               {tab.kind === "artefakt" && <ArtefaktFenster tab={tab} />}
+              {tab.kind === "doku" && <DokuFenster tab={tab} snap={snap} />}
             </div>
           );
         })}

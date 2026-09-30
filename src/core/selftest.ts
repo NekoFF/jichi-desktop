@@ -16,6 +16,7 @@ import { Agent } from "./agent.ts";
 import { JsonRpcPeer } from "./jsonrpc.ts";
 import { applyPlan, planOf, producedFiles, visible } from "./preview.ts";
 import { transcriptMarkdown } from "./export.ts";
+import { dokuKarte, dokuTitel, dokuVerweis } from "./doku.ts";
 import { DEFAULT_SPEECH, DEFAULT_TRANSCRIBE, SPEAK_MAX, speechModel, sprechbar } from "./speech.ts";
 import type {
   ConfigReport,
@@ -186,6 +187,28 @@ class FakeAgent implements Transport {
     this.diktiert.push({ bytes: audio.length, mime, model });
     return "  diktierter Text ";
   }
+  dokuSeiten = new Map<string, string>([
+    ["README.md", "# Karte\n\n## Start here\n\nDer kurze Weg.\n\n- [`SETUP_WIZARD.md`](SETUP_WIZARD.md) — Setup wizard (`jichi setup`)\n"],
+    ["SETUP_WIZARD.md", "# Setup wizard\n"],
+  ]);
+  dokuQuelle = false;
+  #dokuStand() {
+    return { ort: { root: "/src/jichi/docs", quelle: "programm" as const, commit: "ed087f1" }, seiten: this.dokuSeiten.size,
+      quelle: { eingetragen: this.dokuQuelle, aktuell: this.dokuQuelle, embedModell: true }, problem: null };
+  }
+  dokuProgramme: string[] = [];
+  async jichiDokuStatus(program: string) { this.dokuProgramme.push(program); return this.#dokuStand(); }
+  async jichiDokuPfad() { return this.#dokuStand(); }
+  async jichiDokuListe() { return [...this.dokuSeiten.keys()]; }
+  async jichiDokuLesen(_p: string, seite: string) {
+    const s = this.dokuSeiten.get(seite);
+    if (s === undefined) throw new Error(`${seite}: nicht gefunden.`);
+    return s;
+  }
+  async jichiDokuSuchen(_p: string, anfrage: string) {
+    return anfrage ? [{ datei: "SETUP_WIZARD.md", zeile: 1, text: "# Setup wizard" }] : [];
+  }
+  async jichiDokuFuerAgent(_p: string, an: boolean) { this.dokuQuelle = an; return this.#dokuStand(); }
   vorgelesen: Array<{ text: string; model: string }> = [];
   async speak(text: string, model: string) {
     this.vorgelesen.push({ text, model });
@@ -1038,6 +1061,45 @@ check("MCP-Server werden gelistet", (await befehl.mcpServers())[0]?.builtin === 
 
 await befehl.openLink("https://uni-giessen.de");
 check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de");
+
+// ── jichis Dokumentation ─────────────────────────────────────────────────────
+
+{
+  const karte = dokuKarte([
+    "# The documentation map", "", "Einleitung [`analysis/`](analysis/).", "",
+    "## Start here", "", "The shortest path.", "",
+    "- [`BUILD.md`](BUILD.md) — Building jichi from source",
+    "- [`DOCTOR.md`](DOCTOR.md) — `doctor` — setup health check",
+    "- [Web](https://example.org) — nicht im Ordner",
+    "", "## Leer", "", "Nichts hier.", "",
+    "## Beyond this directory", "", "| Where | What |", "|---|---|",
+    "| [`analysis/`](analysis/) | Dated post-mortems. |",
+    "", "Outside: [`../README.md`](../README.md)",
+  ].join("\n"));
+  check("die Karte: Abschnitte in Reihenfolge, leere fallen weg",
+    karte.map((a) => a.titel).join("|") === "Start here|Beyond this directory", JSON.stringify(karte.map((a) => a.titel)));
+  check("die Karte: Seiten mit Titel, der erste Satz beschreibt den Abschnitt",
+    karte[0].text === "The shortest path." && karte[0].seiten.length === 2 &&
+    karte[0].seiten[1].titel === "doctor — setup health check" && karte[0].seiten[0].datei === "BUILD.md", JSON.stringify(karte[0]));
+  check("die Karte: Ordner aus der Tabelle", karte[1].seiten[0].datei === "analysis/" && karte[1].seiten[0].titel === "Dated post-mortems.");
+
+  check("Verweise: relativ, mit Anker, Ordner → README", JSON.stringify([
+    dokuVerweis("analysis/x.md", "../DOCTOR.md#flags"), dokuVerweis("README.md", "plans/"), dokuVerweis("A.md", "#oben"),
+  ]) === JSON.stringify([{ seite: "DOCTOR.md", anker: "flags" }, { seite: "plans/README.md", anker: null }, { seite: "A.md", anker: "oben" }]));
+  check("Verweise: hinaus aus docs/, ins Web oder auf Nicht-Markdown → null",
+    dokuVerweis("README.md", "../CHANGELOG.md") === null && dokuVerweis("README.md", "https://x.de") === null &&
+    dokuVerweis("README.md", "bild.png") === null && dokuVerweis("README.md", "mailto:a@b") === null);
+  check("Titel: erste Überschrift, sonst der Dateiname",
+    dokuTitel("text\n# `jichi setup` wizard\n", "X.md") === "jichi setup wizard" && dokuTitel("ohne", "plans/2026-plan.md") === "2026-plan");
+
+  const vorher = term.dokuProgramme.length;
+  await befehl.dokuStatus();
+  check("die Doku wird beim Programm des Agenten gesucht", term.dokuProgramme.length === vorher + 1 && term.dokuProgramme[term.dokuProgramme.length - 1] !== "");
+  const stand = await befehl.dokuFuerAgent(true);
+  check("jichi bekommt die Doku als Nachschlagewerk", stand.quelle.eingetragen && term.dokuQuelle);
+  await befehl.dokuFuerAgent(false);
+  check("… und kann sie wieder abgeben", !term.dokuQuelle);
+}
 
 // ── Sprache ──────────────────────────────────────────────────────────────────
 

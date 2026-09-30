@@ -12,6 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
 
+import type { DokuStatus, DokuTreffer } from "./doku.ts";
 import { t } from "./i18n.ts";
 
 /**
@@ -339,6 +340,18 @@ export interface Transport {
   documentsStatus(): Promise<DocumentsStatus>;
   documentsSet(enable: boolean): Promise<DocumentsStatus>;
 
+  // ── jichis Dokumentation ───────────────────────────────────────────────────
+  // `program` ist das Programm des Agenten: neben ihm liegt die Dokumentation.
+
+  jichiDokuStatus(program: string): Promise<DokuStatus>;
+  /** Den Ort nennen (`null`: vergessen). Nur jichis `docs/` wird angenommen. */
+  jichiDokuPfad(program: string, pfad: string | null): Promise<DokuStatus>;
+  jichiDokuListe(program: string): Promise<string[]>;
+  jichiDokuLesen(program: string, seite: string): Promise<string>;
+  jichiDokuSuchen(program: string, anfrage: string): Promise<DokuTreffer[]>;
+  /** jichi die Dokumentation als Quelle für `search_docs` geben oder nehmen. */
+  jichiDokuFuerAgent(program: string, an: boolean): Promise<DokuStatus>;
+
   // ── Erzeugte Dateien ───────────────────────────────────────────────────────
   fileInfo(cwd: string, path: string): Promise<FileInfo>;
   openFile(cwd: string, path: string): Promise<void>;
@@ -494,6 +507,13 @@ export const tauriTransport: Transport = {
 
   readAttachment: (path) => invoke<FileAttachment>("read_attachment", { path }).catch(fail),
   documentsStatus: () => invoke<DocumentsStatus>("documents_status").catch(fail),
+
+  jichiDokuStatus: (program) => invoke<DokuStatus>("jichi_doku_status", { program }).catch(fail),
+  jichiDokuPfad: (program, pfad) => invoke<DokuStatus>("jichi_doku_pfad", { program, pfad }).catch(fail),
+  jichiDokuListe: (program) => invoke<string[]>("jichi_doku_liste", { program }).catch(fail),
+  jichiDokuLesen: (program, seite) => invoke<string>("jichi_doku_lesen", { program, seite }).catch(fail),
+  jichiDokuSuchen: (program, anfrage) => invoke<DokuTreffer[]>("jichi_doku_suchen", { program, anfrage }).catch(fail),
+  jichiDokuFuerAgent: (program, an) => invoke<DokuStatus>("jichi_doku_fuer_agent", { program, an }).catch(fail),
   fileInfo: (cwd, path) => invoke<FileInfo>("file_info", { cwd, path }).catch(fail),
   listDir: (cwd, path) => invoke<DirListing>("list_dir", { cwd, path }).catch(fail),
   readText: (cwd, path) => invoke<TextFile>("read_text", { cwd, path }).catch(fail),

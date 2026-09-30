@@ -84,4 +84,6 @@ export const VERLAUF: Record<string, string> = {
   "gespeichert": "saved",
   "Kopie speichern unter …": "Save a copy as …",
   "Kopie speichern unter": "Save a copy as",
+  // jichis Dokumentation
+  "Seite öffnen": "Open page",
 };

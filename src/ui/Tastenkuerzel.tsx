@@ -29,7 +29,8 @@ function gruppen(): Array<{ titel: string; tasten: Array<[string, string]> }> {
         [`${M} ⇧ D`, t("Änderungen")],
         [`${t("Strg")} \``, "Terminal"],
         [`${M} ⇧ B`, "Browser"],
-        [`${M} \\`, t("Vorderes Fenster schließen")],
+        [`${M} ⇧ H`, t("jichi-Dokumentation")],
+      [`${M} \\`, t("Vorderes Fenster schließen")],
       ],
     },
     {

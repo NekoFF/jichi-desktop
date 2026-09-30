@@ -162,6 +162,10 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.refreshGateway()` | Freie Modelle (`jlu/…`) am Gateway abfragen → `snapshot.gateway`. |
 | `agent.transcribe(blob)` | Aufnahme → Text über `/audio/transcriptions` (Standard `jlu/whisper-1`). Der Text ist für das Eingabefeld, nicht direkt für jichi. |
 | `agent.speak(markdown)` | Antwort vorlesen: Markdown → Sprechtext (`sprechbar`), zurück kommt mp3 über `/audio/speech` (Standard `jlu/tts-1-hd`). |
+| `agent.dokuStatus()` | Wo jichis Dokumentation liegt (neben dem Programm im Quellbaum, oder vom Benutzer genannt), wie viele Seiten, Git-Stand, und ob jichi sie als Quelle `jichi` für `search_docs` hat. |
+| `agent.dokuListe()` / `agent.dokuLesen(seite)` / `agent.dokuSuchen(anfrage)` | Seiten relativ zu `docs/`; gelesen wird nur Markdown innerhalb. Die Karte liest `dokuKarte(README.md)`, Verweise löst `dokuVerweis(von, href)` auf. |
+| `agent.dokuOrdnerWaehlen()` / `agent.dokuOrtVergessen()` | Den Ort selbst nennen — wenn sie nicht neben jichi liegt (Windows: in WSL). |
+| `agent.dokuFuerAgent(an)` | Eintrag `{"name":"jichi","path":…}` in `docs` von `~/.jichi` (mit Sicherung); jichi startet neu, der Chat bleibt. Braucht ein Modell mit der Rolle `embed`. |
 | `agent.readProjectFile(path)` | Heutiger Inhalt einer Datei im Projekt — für die Diff-Vorschau. |
 | `agent.openLink(url)` | http(s)-Verweis im Browser des Systems öffnen. |
 | `agent.pickAttachment()` | Datei für den nächsten Zug wählen; PDF, Word, Excel … kommen als Text. |

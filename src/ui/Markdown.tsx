@@ -12,7 +12,7 @@
  *   diese Antwort liest.
  */
 
-import { memo, useState, type ReactNode } from "react";
+import { createElement, memo, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -93,13 +93,36 @@ function Codeblock({ children, className }: { children?: ReactNode; className?: 
   );
 }
 
-const components: Components = {
+/** Ein Anker wie bei GitHub: klein, ohne Satzzeichen, Leerzeichen → `-`. */
+export function anker(text: string): string {
+  return text.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
+}
+
+/**
+ * `verweis`: wohin ein Verweis ohne http führt — in der Dokumentation auf die
+ * nächste Seite. Ohne ihn sind solche Verweise stumm und Pfade in `code`
+ * öffnen Dateien des Projekts.
+ */
+function baue(verweis?: (href: string) => void): Components {
+  const ueberschrift = (tag: "h1" | "h2" | "h3" | "h4") =>
+    ({ children }: { children?: ReactNode }) => createElement(tag, { id: anker(textOf(children)) }, children);
+  return {
+  ...(verweis ? { h1: ueberschrift("h1"), h2: ueberschrift("h2"), h3: ueberschrift("h3"), h4: ueberschrift("h4") } : {}),
   pre: ({ children }) => <>{children}</>,
   code({ className, children }) {
     const block = /language-/.test(className ?? "") || textOf(children).includes("\n");
     if (block) return <Codeblock className={className}>{children}</Codeblock>;
     const inhalt = textOf(children);
     const pfad = PFAD.exec(inhalt);
+    if (pfad && verweis) {
+      if (!/\.md$/i.test(inhalt)) return <code className="md-inline">{children}</code>;
+      return (
+        <code className="md-inline md-pfad" role="link" tabIndex={0} title={t("Seite öffnen")}
+          onClick={() => verweis(inhalt)} onKeyDown={(e) => e.key === "Enter" && verweis(inhalt)}>
+          {children}
+        </code>
+      );
+    }
     if (pfad) {
       // Ein Pfad öffnet die Datei in der Seitenleiste (fehlt sie, sagt die Ansicht das).
       const line = pfad[1] ? Number(pfad[1]) : undefined;
@@ -118,11 +141,14 @@ const components: Components = {
     const offen = /^https?:\/\//i.test(url);
     return (
       <a
-        href={offen ? url : undefined}
+        href={offen || verweis ? url : undefined}
         title={url}
         onClick={(e) => {
           e.preventDefault();
-          if (!offen) return;
+          if (!offen) {
+            verweis?.(url);
+            return;
+          }
           // Mit ⌘/Strg im System-Browser, sonst im Browser der Seitenleiste.
           if (e.metaKey || e.ctrlKey) void agent.openLink(url).catch(() => {});
           else panel.browser(url);
@@ -144,17 +170,21 @@ const components: Components = {
       <table>{children}</table>
     </div>
   ),
-};
+  };
+}
+
+const components = baue();
 
 /** Nur neu rechnen, wenn sich der Text ändert — beim Streamen die jüngste Nachricht. */
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text, verweis }: { text: string; verweis?: (href: string) => void }) {
   useSprache();
+  const komponenten = useMemo(() => (verweis ? baue(verweis) : components), [verweis]);
   return (
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
-        components={components}
+        components={komponenten}
         skipHtml
       >
         {text}

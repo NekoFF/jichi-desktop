@@ -39,6 +39,7 @@ mod konfig;
 mod documents;
 mod gateway;
 mod git;
+mod jichi_doku;
 mod mcp_dokumente;
 mod projekt;
 mod pty;
@@ -2008,6 +2009,115 @@ async fn documents_set(enable: bool) -> Result<DocsStatus, String> {
     blocking(move || docs_set_now(enable)).await?
 }
 
+// ── jichis Dokumentation ─────────────────────────────────────────────────────
+
+/// Ein vom Benutzer genannter Ort der Dokumentation (wenn sie nicht neben dem
+/// Programm liegt — etwa unter Windows, wo jichi in WSL läuft).
+fn doku_pfad_datei() -> Option<PathBuf> {
+    Some(app_dir()?.join("doku.json"))
+}
+
+fn doku_pfad_eingestellt() -> Option<PathBuf> {
+    let text = std::fs::read_to_string(doku_pfad_datei()?).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    json.get("pfad").and_then(|p| p.as_str()).map(expand_tilde)
+}
+
+fn doku_ort(program: &str) -> Option<jichi_doku::DokuOrt> {
+    let prog = which(program);
+    jichi_doku::finden(prog.as_deref(), doku_pfad_eingestellt().as_deref())
+}
+
+fn doku_root(program: &str) -> Result<PathBuf, String> {
+    doku_ort(program)
+        .map(|o| PathBuf::from(o.root))
+        .ok_or_else(|| "Die Dokumentation von jichi wurde nicht gefunden.".to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DokuStatus {
+    ort: Option<jichi_doku::DokuOrt>,
+    seiten: usize,
+    /// Ob jichi die Dokumentation als Quelle für `search_docs` hat.
+    quelle: jichi_doku::Quellenstand,
+    /// Die Konfiguration ist nicht lesbar/schreibbar (Kommentare …).
+    problem: Option<String>,
+}
+
+fn doku_status_now(program: &str) -> DokuStatus {
+    let ort = doku_ort(program);
+    let seiten = ort.as_ref().map(|o| jichi_doku::liste(Path::new(&o.root)).len()).unwrap_or(0);
+    let root = ort.as_ref().map(|o| o.root.as_str());
+    let (quelle, problem) = match read_config_json() {
+        Ok(Some(json)) => (jichi_doku::quellenstand(&json, root), None),
+        Ok(None) => (jichi_doku::quellenstand(&serde_json::json!({}), root), None),
+        Err(e) => (jichi_doku::quellenstand(&serde_json::json!({}), root), Some(e)),
+    };
+    DokuStatus { ort, seiten, quelle, problem }
+}
+
+#[tauri::command]
+async fn jichi_doku_status(program: String) -> Result<DokuStatus, String> {
+    blocking(move || doku_status_now(&program)).await
+}
+
+/// Den Ort nennen (oder mit `None` vergessen). Nur ein Ordner, der wie jichis
+/// `docs/` aussieht, wird angenommen.
+#[tauri::command]
+async fn jichi_doku_pfad(program: String, pfad: Option<String>) -> Result<DokuStatus, String> {
+    blocking(move || {
+        let datei = doku_pfad_datei().ok_or("Anwendungsordner fehlt.")?;
+        match pfad.map(|p| p.trim().to_string()).filter(|p| !p.is_empty()) {
+            Some(p) => {
+                let dir = expand_tilde(&p);
+                // Der Ordner des Quellbaums darf es auch sein: dann ist docs/ gemeint.
+                let dir = if jichi_doku::ist_jichi_doku(&dir) { dir } else { dir.join("docs") };
+                if !jichi_doku::ist_jichi_doku(&dir) {
+                    return Err(format!("{p}: das ist nicht die Dokumentation von jichi (docs/ mit README.md, VOCABULARY.md …)."));
+                }
+                std::fs::write(&datei, serde_json::json!({ "pfad": dir.to_string_lossy() }).to_string())
+                    .map_err(|e| e.to_string())?;
+            }
+            None => {
+                let _ = std::fs::remove_file(&datei);
+            }
+        }
+        Ok(doku_status_now(&program))
+    })
+    .await?
+}
+
+#[tauri::command]
+async fn jichi_doku_liste(program: String) -> Result<Vec<String>, String> {
+    blocking(move || Ok(jichi_doku::liste(&doku_root(&program)?))).await?
+}
+
+#[tauri::command]
+async fn jichi_doku_lesen(program: String, seite: String) -> Result<String, String> {
+    blocking(move || jichi_doku::lesen(&doku_root(&program)?, &seite)).await?
+}
+
+#[tauri::command]
+async fn jichi_doku_suchen(program: String, anfrage: String) -> Result<Vec<jichi_doku::Treffer>, String> {
+    blocking(move || Ok(jichi_doku::suchen(&doku_root(&program)?, &anfrage, 60))).await?
+}
+
+/// jichi die Dokumentation als Nachschlagewerk geben (Eintrag `docs` der
+/// Konfiguration, mit Sicherung) — oder wieder nehmen.
+#[tauri::command]
+async fn jichi_doku_fuer_agent(program: String, an: bool) -> Result<DokuStatus, String> {
+    blocking(move || {
+        let path = config_path();
+        let mut json = read_config_json_at(&path)?.ok_or("Es gibt noch keine Konfiguration des Agenten.")?;
+        let root = if an { Some(doku_root(&program)?) } else { None };
+        jichi_doku::quelle_setzen(&mut json, root.as_ref().map(|r| r.to_string_lossy()).as_deref())?;
+        write_config_json_at(&path, &json)?;
+        Ok(doku_status_now(&program))
+    })
+    .await?
+}
+
 #[tauri::command]
 async fn read_attachment(path: String) -> Result<Attachment, String> {
     blocking(move || read_attachment_now(&path)).await?
@@ -2143,6 +2253,12 @@ pub fn run() {
             acp_stop,
             acp_running,
             gateway_models,
+            jichi_doku_status,
+            jichi_doku_pfad,
+            jichi_doku_liste,
+            jichi_doku_lesen,
+            jichi_doku_suchen,
+            jichi_doku_fuer_agent,
             speech_transcribe,
             speech_speak,
             read_attachment,

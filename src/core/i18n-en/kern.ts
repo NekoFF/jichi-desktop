@@ -96,4 +96,6 @@ export const KERN: Record<string, string> = {
   "Werkzeug ausführen": "Run tool",
   "jichi wartet auf deine Erlaubnis": "jichi is waiting for your permission",
   "Kein Projekt geöffnet.": "No project open.",
+  // jichis Dokumentation
+  "Ordner der jichi-Dokumentation (docs/)": "Folder of the jichi documentation (docs/)",
 };
