@@ -15,7 +15,7 @@ gelöscht. Wird sie umgekehrt, bleibt die Zeile stehen und bekommt den Vermerk
 **Abgelöst**.
 
 Die Einträge ab E1 sind am 30.09. **nachträglich** aufgeschrieben. Die
-Entscheidungen selbst fielen zwischen dem 20. und dem 30.09. Damals ist das
+Entscheidungen selbst fielen zwischen dem 25. und dem 30.09. Damals ist das
 Abwägen nicht notiert worden, das gehört ehrlich hierher.
 
 ---
