@@ -18,6 +18,7 @@
 
 export { Agent, agent } from "./agent.ts";
 export { dateiname, transcriptMarkdown } from "./export.ts";
+export { initErgebnis, initPacks, type InitDatei, type InitErgebnis, type InitPack } from "./einrichten.ts";
 export { dokuKarte, dokuTitel, dokuVerweis, type DokuAbschnitt, type DokuSeite, type DokuStatus, type DokuTreffer } from "./doku.ts";
 export { locale, onSprache, setSprache, sprache, SPRACHEN, systemSprache, t, type Sprache } from "./i18n.ts";
 export { DEFAULT_SPEECH, DEFAULT_TRANSCRIBE, speechModel, sprechbar } from "./speech.ts";

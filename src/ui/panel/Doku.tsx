@@ -81,9 +81,10 @@ export function DokuFenster({ tab, snap }: { tab: Tab; snap: Snapshot }) {
   // Zum Anker springen, sobald die Seite gezeichnet ist.
   useEffect(() => {
     if (text === null) return;
-    const el = tab.anker ? blatt.current?.querySelector(`#${CSS.escape(anker(tab.anker))}`) : null;
-    if (el) el.scrollIntoView({ block: "start" });
-    else blatt.current?.scrollTo({ top: 0 });
+    const el = tab.anker ? document.getElementById(anker(tab.anker)) : null;
+    // Mit ?.(): nicht jede Umgebung kennt beides (jsdom in den Prüfungen nicht).
+    if (el) el.scrollIntoView?.({ block: "start" });
+    else blatt.current?.scrollTo?.({ top: 0 });
   }, [text, tab.anker]);
 
   function oeffnen(neu: string, ank: string | null = null) {

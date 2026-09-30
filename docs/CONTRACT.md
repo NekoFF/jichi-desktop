@@ -166,6 +166,8 @@ danach die Variante des Knopfes wählen, nicht nach dem Text.
 | `agent.dokuListe()` / `agent.dokuLesen(seite)` / `agent.dokuSuchen(anfrage)` | Seiten relativ zu `docs/`; gelesen wird nur Markdown innerhalb. Die Karte liest `dokuKarte(README.md)`, Verweise löst `dokuVerweis(von, href)` auf. |
 | `agent.dokuOrdnerWaehlen()` / `agent.dokuOrtVergessen()` | Den Ort selbst nennen — wenn sie nicht neben jichi liegt (Windows: in WSL). |
 | `agent.dokuFuerAgent(an)` | Eintrag `{"name":"jichi","path":…}` in `docs` von `~/.jichi` (mit Sicherung); jichi startet neu, der Chat bleibt. Braucht ein Modell mit der Rolle `embed`. |
+| `agent.initPacks()` | jichis eingebaute Scaffolding-Packs (`jichi init --list`, gelesen von `initPacks`). |
+| `agent.initVorschau(packs)` / `agent.initAnwenden(packs)` | `jichi init <packs…>` im offenen Projekt — erst `--dry-run` (neu / bleibt / überschrieben), dann wirklich; danach startet jichi neu und liest AGENTS.md und .jichi/. Hinaus gehen nur Packnamen. |
 | `agent.readProjectFile(path)` | Heutiger Inhalt einer Datei im Projekt — für die Diff-Vorschau. |
 | `agent.openLink(url)` | http(s)-Verweis im Browser des Systems öffnen. |
 | `agent.pickAttachment()` | Datei für den nächsten Zug wählen; PDF, Word, Excel … kommen als Text. |

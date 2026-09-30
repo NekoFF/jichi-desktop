@@ -13,6 +13,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
 
 import type { DokuStatus, DokuTreffer } from "./doku.ts";
+
+/** Was ein Unterbefehl von jichi ausgab. */
+export interface JichiAusgabe {
+  exit: number | null;
+  stdout: string;
+  stderr: string;
+}
 import { t } from "./i18n.ts";
 
 /**
@@ -352,6 +359,13 @@ export interface Transport {
   /** jichi die Dokumentation als Quelle für `search_docs` geben oder nehmen. */
   jichiDokuFuerAgent(program: string, an: boolean): Promise<DokuStatus>;
 
+  // ── Einrichten über jichi ──────────────────────────────────────────────────
+
+  /** `jichi init --list`, roh. */
+  jichiInitListe(program: string): Promise<JichiAusgabe>;
+  /** `jichi init <packs…>` im Projekt; `probe`: nur `--dry-run`. Nur Packnamen gehen hinaus. */
+  jichiInit(program: string, cwd: string, packs: string[], probe: boolean): Promise<JichiAusgabe>;
+
   // ── Erzeugte Dateien ───────────────────────────────────────────────────────
   fileInfo(cwd: string, path: string): Promise<FileInfo>;
   openFile(cwd: string, path: string): Promise<void>;
@@ -514,6 +528,8 @@ export const tauriTransport: Transport = {
   jichiDokuLesen: (program, seite) => invoke<string>("jichi_doku_lesen", { program, seite }).catch(fail),
   jichiDokuSuchen: (program, anfrage) => invoke<DokuTreffer[]>("jichi_doku_suchen", { program, anfrage }).catch(fail),
   jichiDokuFuerAgent: (program, an) => invoke<DokuStatus>("jichi_doku_fuer_agent", { program, an }).catch(fail),
+  jichiInitListe: (program) => invoke<JichiAusgabe>("jichi_init_liste", { program }).catch(fail),
+  jichiInit: (program, cwd, packs, probe) => invoke<JichiAusgabe>("jichi_init", { program, cwd, packs, probe }).catch(fail),
   fileInfo: (cwd, path) => invoke<FileInfo>("file_info", { cwd, path }).catch(fail),
   listDir: (cwd, path) => invoke<DirListing>("list_dir", { cwd, path }).catch(fail),
   readText: (cwd, path) => invoke<TextFile>("read_text", { cwd, path }).catch(fail),

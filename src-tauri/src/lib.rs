@@ -888,7 +888,21 @@ fn run_bounded(
     env: &BTreeMap<String, String>,
     limit: std::time::Duration,
 ) -> Result<(String, String, Option<i32>), String> {
-    let mut child = Command::new(path)
+    run_bounded_in(path, args, env, limit, None)
+}
+
+fn run_bounded_in(
+    path: &Path,
+    args: &[&str],
+    env: &BTreeMap<String, String>,
+    limit: std::time::Duration,
+    cwd: Option<&Path>,
+) -> Result<(String, String, Option<i32>), String> {
+    let mut cmd = Command::new(path);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let mut child = cmd
         .args(args)
         .env("PATH", child_path())
         .envs(env)
@@ -2009,6 +2023,74 @@ async fn documents_set(enable: bool) -> Result<DocsStatus, String> {
     blocking(move || docs_set_now(enable)).await?
 }
 
+// ── Einrichten über jichi (init) ─────────────────────────────────────────────
+// Alex' zweiter Punkt: die Einrichtung baut auf jichi auf. Die Anwendung ruft
+// `jichi init` und liest seine Ausgabe; die Packs und was sie schreiben sind
+// jichis (docs/SCAFFOLDING.md). Hinaus gehen nur Packnamen, keine freien Argumente.
+
+fn pack_name_ok(n: &str) -> bool {
+    // Beginnt mit Buchstabe oder Ziffer: sonst wäre `--force` ein „Pack“.
+    n.len() <= 40
+        && n.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// So wird jichi für einen Unterbefehl gerufen — unter Windows über wsl.exe.
+fn jichi_aufruf(program: &str) -> Result<(PathBuf, Vec<String>), String> {
+    let path = which(program).ok_or_else(|| format!("{program} nicht gefunden"))?;
+    let stamm = path.file_stem().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let vor: Vec<String> = if stamm == "wsl" { vec!["jichi".into()] } else { Vec::new() };
+    agent_program_ok(&path, &vor)?;
+    Ok((path, vor))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JichiAusgabe {
+    exit: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+fn jichi_init_now(program: &str, cwd: Option<&str>, packs: &[String], probe: bool, liste: bool) -> Result<JichiAusgabe, String> {
+    let (path, vor) = jichi_aufruf(program)?;
+    let mut args: Vec<String> = vor;
+    args.push("init".into());
+    let dir = match cwd {
+        Some(c) => Some(projekt::fuer_programme(&projekt::root_of(c)?)),
+        None => None,
+    };
+    if liste {
+        args.push("--list".into());
+    } else {
+        if dir.is_none() {
+            return Err("Kein Projekt geöffnet.".into());
+        }
+        if packs.is_empty() || packs.len() > 12 || !packs.iter().all(|p| pack_name_ok(p)) {
+            return Err("Ungültige Auswahl der Packs.".into());
+        }
+        args.extend(packs.iter().cloned());
+        if probe {
+            args.push("--dry-run".into());
+        }
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (stdout, stderr, exit) =
+        run_bounded_in(&path, &refs, &BTreeMap::new(), std::time::Duration::from_secs(60), dir.as_deref())?;
+    Ok(JichiAusgabe { exit, stdout, stderr })
+}
+
+#[tauri::command]
+async fn jichi_init_liste(program: String) -> Result<JichiAusgabe, String> {
+    blocking(move || jichi_init_now(&program, None, &[], false, true)).await?
+}
+
+/// `probe`: nur zeigen, was geschähe (`--dry-run`).
+#[tauri::command]
+async fn jichi_init(program: String, cwd: String, packs: Vec<String>, probe: bool) -> Result<JichiAusgabe, String> {
+    blocking(move || jichi_init_now(&program, Some(&cwd), &packs, probe, false)).await?
+}
+
 // ── jichis Dokumentation ─────────────────────────────────────────────────────
 
 /// Ein vom Benutzer genannter Ort der Dokumentation (wenn sie nicht neben dem
@@ -2254,6 +2336,8 @@ pub fn run() {
             acp_running,
             gateway_models,
             jichi_doku_status,
+            jichi_init_liste,
+            jichi_init,
             jichi_doku_pfad,
             jichi_doku_liste,
             jichi_doku_lesen,
@@ -2366,6 +2450,14 @@ mod tests {
         }
         // Mit dem falschen Trennzeichen bliebe der ganze PATH ein einziger Eintrag.
         assert!(parts.len() > 1, "PATH wurde nicht zerlegt: {path}");
+    }
+
+    #[test]
+    fn nur_packnamen_gehen_an_jichi_init() {
+        assert!(pack_name_ok("web-ts") && pack_name_ok("default") && pack_name_ok("c-cli"));
+        for boese in ["", "--force", "-x", "a b", "../x", "Default", "x;rm", &"a".repeat(41)] {
+            assert!(!pack_name_ok(boese), "{boese}");
+        }
     }
 
     #[cfg(unix)]

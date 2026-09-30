@@ -30,11 +30,13 @@ import {
   Terminal,
   X,
   Zap,
+  Wand2,
 } from "lucide-react";
 
 import { agent, shortPath, t, type AgentMode, type Snapshot } from "../core/index.ts";
 import { zurEingabe } from "./panel/store.ts";
 import { kannAufnehmen, Mikrofon } from "./Sprache.tsx";
+import { projektEinrichten } from "./ProjektEinrichten.tsx";
 import type { FileAttachment } from "../core/transport.ts";
 
 const nachricht = (ursache: unknown) => (ursache instanceof Error ? ursache.message : String(ursache));
@@ -180,6 +182,13 @@ function PlusMenue({
             text={snap.hasProject ? shortPath(snap.cwd, 28) : t("Ordner wählen")}
             disabled={!snap.canSwitch}
             onClick={tun(() => void agent.pickWorkspace().catch(() => {}))}
+          />
+          <Menuepunkt
+            icon={<Wand2 size={15} />}
+            titel={t("Projekt einrichten")}
+            text={snap.hasProject ? t("Packs von jichi init") : t("erst ein Projekt öffnen")}
+            disabled={!snap.hasProject || !snap.canSwitch}
+            onClick={tun(projektEinrichten)}
           />
           {snap.documents && !snap.documents.enabled && !snap.documents.problem && (
             <Menuepunkt

@@ -40,6 +40,7 @@ import { Eingabe } from "./ui/Eingabe.tsx";
 import { ChatMenue } from "./ui/ChatMenue.tsx";
 import { Einrichtung } from "./ui/Einrichtung.tsx";
 import { Tastenkuerzel } from "./ui/Tastenkuerzel.tsx";
+import { ProjektEinrichten } from "./ui/ProjektEinrichten.tsx";
 import { Einstellungen } from "./ui/Einstellungen.tsx";
 import { Seitenleiste } from "./ui/Seitenleiste.tsx";
 import { Leer, Verlauf } from "./ui/Verlauf.tsx";
@@ -190,6 +191,7 @@ function App() {
       )}
       </div>
       {snap.needsSetup && <Einrichtung snap={snap} prefs={prefs} setPrefs={setPrefs} />}
+      <ProjektEinrichten snap={snap} />
     </>
   );
 }

@@ -18,6 +18,7 @@
 
 import { speechModel, sprechbar } from "./speech.ts";
 import type { DokuStatus, DokuTreffer } from "./doku.ts";
+import { initErgebnis, initPacks, type InitErgebnis, type InitPack } from "./einrichten.ts";
 import { JsonRpcPeer, RpcCode, RpcError } from "./jsonrpc.ts";
 import {
   clientCapabilities,
@@ -266,6 +267,36 @@ export class Agent {
     const status = await this.#transport.jichiDokuFuerAgent(this.#programm(), an);
     await this.#relaunchKeepingChat();
     return status;
+  }
+
+  // ── Einrichten über jichi (init) ───────────────────────────────────────────
+
+  /** jichis eingebaute Packs (`init --list`). */
+  async initPacks(): Promise<InitPack[]> {
+    const a = await this.#transport.jichiInitListe(this.#programm());
+    return initPacks(a.stdout);
+  }
+
+  /** Was `init` im offenen Projekt schreiben würde — ohne etwas zu schreiben. */
+  async initVorschau(packs: string[]): Promise<InitErgebnis> {
+    const cwd = this.#config?.cwd;
+    if (!cwd) throw new Error(t("Kein Projekt geöffnet."));
+    const a = await this.#transport.jichiInit(this.#programm(), cwd, packs, true);
+    return initErgebnis(a.stdout, a.stderr, a.exit);
+  }
+
+  /**
+   * Die Packs schreiben. jichi liest AGENTS.md und .jichi/ beim Start einer
+   * Sitzung — ein laufender Agent startet darum neu, der offene Chat bleibt.
+   */
+  async initAnwenden(packs: string[]): Promise<InitErgebnis> {
+    if (this.#busy()) throw new Error(BUSY());
+    const cwd = this.#config?.cwd;
+    if (!cwd) throw new Error(t("Kein Projekt geöffnet."));
+    const a = await this.#transport.jichiInit(this.#programm(), cwd, packs, false);
+    const e = initErgebnis(a.stdout, a.stderr, a.exit);
+    if (e.ok) await this.#relaunchKeepingChat();
+    return e;
   }
 
   // ── Was der Schlüssel erreicht ─────────────────────────────────────────────

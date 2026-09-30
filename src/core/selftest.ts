@@ -192,6 +192,15 @@ class FakeAgent implements Transport {
     ["SETUP_WIZARD.md", "# Setup wizard\n"],
   ]);
   dokuQuelle = false;
+  initAufrufe: Array<{ cwd: string; packs: string[]; probe: boolean }> = [];
+  async jichiInitListe() {
+    return { exit: 0, stderr: "", stdout: "Available packs (compiled in):\n  default          Language-agnostic agents.\n  web-ts           TypeScript/web project.\n  systems-analysis Read-mostly analysis.\n\nDomain benches (copy from the jichi source tree's examples/):\n  data-analysis, game-design\n" };
+  }
+  async jichiInit(_p: string, cwd: string, packs: string[], probe: boolean) {
+    this.initAufrufe.push({ cwd, packs, probe });
+    if (packs.includes("gibt-es-nicht")) return { exit: 2, stdout: "", stderr: "init: unknown pack 'gibt-es-nicht' (try `init --list`)\n" };
+    return { exit: 0, stderr: "", stdout: `Scaffolding 'default' into .jichi (this project)${probe ? "  [dry run]" : ""}:\n  + AGENTS.md\n  = .jichi/glossary.md\n  ~ .jichi/agents/reviewer.md\n` };
+  }
   #dokuStand() {
     return { ort: { root: "/src/jichi/docs", quelle: "programm" as const, commit: "ed087f1" }, seiten: this.dokuSeiten.size,
       quelle: { eingetragen: this.dokuQuelle, aktuell: this.dokuQuelle, embedModell: true }, problem: null };
@@ -1099,6 +1108,23 @@ check("Verweise gehen an den Browser", term.links[0] === "https://uni-giessen.de
   check("jichi bekommt die Doku als Nachschlagewerk", stand.quelle.eingetragen && term.dokuQuelle);
   await befehl.dokuFuerAgent(false);
   check("… und kann sie wieder abgeben", !term.dokuQuelle);
+}
+
+// ── Einrichten über jichi init ───────────────────────────────────────────────
+
+{
+  const packs = await befehl.initPacks();
+  check("init --list: die eingebauten Packs, die Domain-Benches zum Kopieren nicht",
+    packs.map((p) => p.name).join(",") === "default,web-ts,systems-analysis" && packs[1].text === "TypeScript/web project.", JSON.stringify(packs));
+  const vorschau = await befehl.initVorschau(["default"]);
+  const letzte = term.initAufrufe[term.initAufrufe.length - 1];
+  check("Vorschau ist --dry-run im offenen Projekt", letzte?.probe === true && letzte.packs.join() === "default" && letzte.cwd !== "", JSON.stringify(letzte));
+  check("Vorschau: neu / bleibt / überschrieben aus jichis Zeichen",
+    JSON.stringify(vorschau.dateien.map((d) => d.art)) === JSON.stringify(["neu", "bleibt", "ueberschrieben"]) && vorschau.dateien[0].pfad === "AGENTS.md" && vorschau.ok);
+  const falsch = await befehl.initVorschau(["gibt-es-nicht"]);
+  check("ein unbekanntes Pack: jichis eigene Meldung", !falsch.ok && falsch.meldung === "init: unknown pack 'gibt-es-nicht' (try `init --list`)", JSON.stringify(falsch));
+  const echt = await befehl.initAnwenden(["default", "web-ts"]);
+  check("Anwenden schreibt wirklich (kein --dry-run)", echt.ok && term.initAufrufe[term.initAufrufe.length - 1]?.probe === false);
 }
 
 // ── Sprache ──────────────────────────────────────────────────────────────────
