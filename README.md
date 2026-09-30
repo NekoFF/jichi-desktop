@@ -71,7 +71,9 @@ wer neu einsteigt, beginnt mit [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.
 
 ## Stand
 
-Entwickelt und geprüft auf macOS (Apple Silicon). Linux und Windows werden als
-Nächstes getestet. Sprache (Spracheingabe und -ausgabe) ist in Arbeit.
+Läuft unter macOS, Linux und Windows (dort mit jichi in WSL): benutzt unter
+macOS, gebaut und geprüft unter Windows 11 und Ubuntu 26.04 (WSL2). Was genau
+gemessen ist und was nicht — und warum Tauri: [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md)
+und [`docs/ENTSCHEIDUNGEN.md`](docs/ENTSCHEIDUNGEN.md).
 
 Entstanden im Praktikum am Hochschulrechenzentrum der JLU Gießen.
