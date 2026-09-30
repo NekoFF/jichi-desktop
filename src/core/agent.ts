@@ -587,7 +587,7 @@ export class Agent {
     await this.#transport.secretStore(readiness.keyEnv, key);
 
     if (!readiness.config.exists) {
-      await this.#transport.writeConfig("jlu");
+      await this.#transport.writeConfig("jlu", readiness.agent);
     } else if (readiness.config.problem) {
       throw new Error(`${readiness.config.path}: ${readiness.config.problem}`);
     }

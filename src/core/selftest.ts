@@ -141,8 +141,10 @@ class FakeAgent implements Transport {
     };
   }
 
-  async writeConfig(preset: string): Promise<ConfigReport> {
+  setupProgramm: string | null = null;
+  async writeConfig(preset: string, program: string): Promise<ConfigReport> {
     if (preset !== "jlu") throw new Error(`unbekannte Vorlage ${preset}`);
+    this.setupProgramm = program;
     if (this.konfiguriert) throw new Error("gibt es bereits");
     this.konfiguriert = true;
     return this.#config();
@@ -444,6 +446,7 @@ const bericht = await neuling.setup("sk-test-geheim-12345");
 check("der Agent prüft sich selbst", bericht.ok === 34 && bericht.fail === 0);
 check("der Schlüssel liegt im Schlüsselbund", frisch.schluesselbund.get("JICHI_API_KEY") === "sk-test-geheim-12345");
 check("die Konfiguration des Agenten wurde angelegt", frisch.konfiguriert);
+check("… von jichi setup, mit dem gefundenen jichi", !!frisch.setupProgramm, String(frisch.setupProgramm));
 check("nach der Einrichtung ist alles bereit", !neuling.getSnapshot().needsSetup && neuling.getSnapshot().canSend);
 
 const uebergeben = frisch.doctorAufrufe[frisch.doctorAufrufe.length - 1]?.env ?? [];

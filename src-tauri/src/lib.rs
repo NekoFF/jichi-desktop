@@ -696,41 +696,34 @@ fn read_config() -> ConfigReport {
 const JLU_API_BASE: &str = "https://api.hrz.uni-giessen.de/v1";
 const KEY_ENV: &str = "JICHI_API_KEY";
 
-fn jlu_config() -> serde_json::Value {
-    let model = |name: &str, id: &str, ctx: u32, out: u32, roles: &[&str]| {
-        let mut m = serde_json::json!({
-            "name": name,
-            "provider": "openai",
-            "model": id,
-            "apiBase": JLU_API_BASE,
-            // Der Name der Variablen, nie ihr Wert. So will es auch die
-            // Dokumentation des Agenten.
-            "apiKeyEnv": KEY_ENV,
-        });
-        if ctx > 0 {
-            m["contextLength"] = ctx.into();
-            m["maxOutputTokens"] = out.into();
-        }
-        if !roles.is_empty() {
-            m["roles"] = roles.iter().map(|r| serde_json::json!(r)).collect();
-        }
-        m
+/// Was die Anwendung zu jichis eigener Einrichtung hinzufügt — nur, was
+/// `jichi setup` nicht schreibt und was sie selbst braucht: ein Modell für
+/// `embed` (jichis Dokumentation und `codebase_search`), eines für `rerank`,
+/// und den Dokumenten-Server dieser Anwendung. Vorhandenes bleibt, wie es ist.
+fn jlu_zusaetze(config: &mut serde_json::Value, exe: Option<&Path>) -> Result<(), String> {
+    let obj = config.as_object_mut().ok_or("Die Konfiguration ist kein JSON-Objekt.")?;
+    let models = obj.entry("models").or_insert_with(|| serde_json::json!([]));
+    let list = models.as_array_mut().ok_or("„models“ ist keine Liste.")?;
+    let hat_rolle = |list: &Vec<serde_json::Value>, rolle: &str| {
+        list.iter().any(|m| m.get("roles").and_then(|r| r.as_array()).is_some_and(|r| r.iter().any(|x| x.as_str() == Some(rolle))))
     };
-
-    let mut config = serde_json::json!({
-        "models": [
-            model("coder", "jlu/qwen3-coder-next", 196608, 65536, &[]),
-            model("long", "jlu/qwen3.8-27b", 977232, 32768, &[]),
-            model("gemma", "jlu/gemma-4-26b-it", 196608, 65536, &[]),
-            model("embed", "jlu/qwen3-embedding", 0, 0, &["embed"]),
-            model("rerank", "jlu/jina-rerank", 0, 0, &["rerank"]),
-        ]
-    });
-    // Eine neue Konfiguration bekommt die Dokumente gleich mit.
-    if let Ok(exe) = std::env::current_exe() {
-        config["mcpServers"] = serde_json::json!([docs_entry(&exe)]);
+    for (name, id, rolle) in [("embed", "jlu/qwen3-embedding", "embed"), ("rerank", "jlu/jina-rerank", "rerank")] {
+        if !hat_rolle(list, rolle) {
+            list.push(serde_json::json!({
+                "name": name, "provider": "openai", "model": id, "apiBase": JLU_API_BASE,
+                // Der Name der Variablen, nie ihr Wert — wie jichi setup es auch schreibt.
+                "apiKeyEnv": KEY_ENV, "roles": [rolle],
+            }));
+        }
     }
-    config
+    if let Some(exe) = exe {
+        let servers = obj.entry("mcpServers").or_insert_with(|| serde_json::json!([]));
+        let s = servers.as_array_mut().ok_or("„mcpServers“ ist keine Liste.")?;
+        if !s.iter().any(|e| e.get("name").and_then(|n| n.as_str()) == Some(DOCS_NAME)) {
+            s.push(docs_entry(exe));
+        }
+    }
+    Ok(())
 }
 
 // ── Dokumente für den Agenten ────────────────────────────────────────────────
@@ -852,7 +845,12 @@ fn docs_repair_now() {
 /// eine fremde Konfiguration zu überschreiben wäre der teuerste denkbare
 /// Bedienfehler.
 #[tauri::command]
-fn write_config(preset: String) -> Result<ConfigReport, String> {
+async fn write_config(preset: String, program: String) -> Result<ConfigReport, String> {
+    // Im Hintergrund: jichi setup fragt das Gateway, das dauert Sekunden.
+    blocking(move || write_config_now(preset, program)).await?
+}
+
+fn write_config_now(preset: String, program: String) -> Result<ConfigReport, String> {
     if preset != "jlu" {
         return Err(format!("unbekannte Vorlage „{preset}“"));
     }
@@ -863,11 +861,12 @@ fn write_config(preset: String) -> Result<ConfigReport, String> {
             path.display()
         ));
     }
-    let text = serde_json::to_string_pretty(&jlu_config())
-        .map_err(|e| format!("Die Vorlage ließ sich nicht schreiben: {e}"))?;
-    std::fs::write(&path, format!("{text}\n"))
-        .map_err(|e| format!("{} ist nicht beschreibbar: {e}", path.display()))?;
-
+    einrichten_mit_jichi_setup(&program)?;
+    // Dazu, was nur diese Anwendung braucht (siehe jlu_zusaetze).
+    if let Some(mut json) = read_config_json_at(&path)? {
+        jlu_zusaetze(&mut json, std::env::current_exe().ok().as_deref())?;
+        write_config_json_at(&path, &json)?;
+    }
     // Sie enthält kein Geheimnis, aber sie beschreibt, wo eines herkommt.
     #[cfg(unix)]
     {
@@ -875,6 +874,46 @@ fn write_config(preset: String) -> Result<ConfigReport, String> {
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
     }
     Ok(read_config())
+}
+
+/// Alex' zweiter Punkt: die globale Konfiguration schreibt jichi selbst —
+/// `jichi setup` ohne Rückfragen, mit dem Gateway der JLU (docs/SETUP_WIZARD.md,
+/// „Flags“). `--context-length auto` fragt das Gateway nach dem echten Fenster
+/// (nur mit Schlüssel). `setup` legt dabei auch Packs und ein Startskript in den
+/// Arbeitsordner; beim ersten Start gibt es noch kein Projekt, also läuft es in
+/// einem leeren Ordner, der danach verschwindet — die Packs eines Projekts
+/// kommen später mit „Projekt einrichten“ (jichi init).
+fn einrichten_mit_jichi_setup(program: &str) -> Result<(), String> {
+    let (path, vor) = jichi_aufruf(program)?;
+    let tmp = std::env::temp_dir().join(format!("jichi-desktop-setup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let key = secret_read(KEY_ENV);
+    let mut args: Vec<String> = vor;
+    args.extend(
+        [
+            "setup", "--non-interactive", "--preset", "developer", "--provider", "openai",
+            "--model", "jlu/qwen3-coder-next", "--api-base", JLU_API_BASE, "--key-env", KEY_ENV,
+            "--config-target", "global",
+        ]
+        .map(String::from),
+    );
+    if key.is_some() {
+        args.extend(["--context-length", "auto"].map(String::from));
+    }
+    let mut env = BTreeMap::new();
+    if let Some(k) = key {
+        env.insert(KEY_ENV.to_string(), k);
+    }
+    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let ergebnis = run_bounded_in(&path, &refs, &env, std::time::Duration::from_secs(90), Some(&tmp));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let (_stdout, stderr, exit) = ergebnis?;
+    if exit != Some(0) || !config_path().exists() {
+        let erste = stderr.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        return Err(format!("jichi setup hat keine Konfiguration geschrieben ({}). {erste}", exit.map_or("abgebrochen".into(), |c| c.to_string())));
+    }
+    Ok(())
 }
 
 // ── Selbstprüfung des Agenten ────────────────────────────────────────────────
@@ -2450,6 +2489,48 @@ mod tests {
         }
         // Mit dem falschen Trennzeichen bliebe der ganze PATH ein einziger Eintrag.
         assert!(parts.len() > 1, "PATH wurde nicht zerlegt: {path}");
+    }
+
+    /// Die ganze erste Einrichtung gegen ein echtes jichi, in einem leeren HOME.
+    /// Nur von Hand und allein (setzt HOME):
+    /// `JICHI_TEST_PROGRAMM=…/jichi/jichi cargo test tests::erste_einrichtung_echt -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn erste_einrichtung_echt() {
+        let home = std::env::temp_dir().join(format!("jichi-desktop-test-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("app")).unwrap();
+        std::env::set_var("HOME", &home);
+        std::env::set_var("JICHI_DESKTOP_DIR", home.join("app"));
+        let prog = std::env::var("JICHI_TEST_PROGRAMM").unwrap();
+        let bericht = write_config_now("jlu".into(), prog).expect("eingerichtet");
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(home.join(".jichi")).unwrap()).unwrap();
+        println!("{}", serde_json::to_string_pretty(&json).unwrap());
+        assert!(json["_comment"].as_str().unwrap().contains("jichi setup"), "von jichi geschrieben");
+        assert_eq!(json["models"][0]["model"], "jlu/qwen3-coder-next");
+        assert_eq!(json["models"][0]["apiKeyEnv"], KEY_ENV);
+        assert!(json["models"].as_array().unwrap().iter().any(|m| m["roles"][0] == "embed"));
+        assert!(bericht.exists);
+        // Keine Packs im HOME: setup lief in einem leeren Ordner, der weg ist.
+        assert!(!home.join("AGENTS.md").exists() && !home.join("run.sh").exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn zusaetze_nur_was_jichi_setup_nicht_schreibt() {
+        // So schreibt jichi setup: ein Modell, keine Rollen embed/rerank.
+        let mut c = serde_json::json!({"models":[{"name":"chat","model":"jlu/qwen3-coder-next","roles":["chat","edit","apply"]}],"snapshots":true});
+        jlu_zusaetze(&mut c, Some(Path::new("/app/jichi-desktop"))).unwrap();
+        let ids: Vec<_> = c["models"].as_array().unwrap().iter().map(|m| m["model"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["jlu/qwen3-coder-next", "jlu/qwen3-embedding", "jlu/jina-rerank"]);
+        assert_eq!(c["models"][1]["apiKeyEnv"], KEY_ENV, "nie ein Schlüssel, nur sein Name");
+        assert!(c["models"][1].get("apiKey").is_none());
+        assert_eq!(c["mcpServers"][0]["name"], DOCS_NAME);
+        assert_eq!(c["snapshots"], true, "jichis Einstellungen bleiben");
+        // Zweimal ist wie einmal.
+        let vorher = c.clone();
+        jlu_zusaetze(&mut c, Some(Path::new("/app/jichi-desktop"))).unwrap();
+        assert_eq!(c, vorher);
     }
 
     #[test]

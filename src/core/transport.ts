@@ -296,7 +296,8 @@ export interface Transport {
   /** Der Agent prüft sich selbst: Schlüssel, Server, Modelle, Kontextfenster. */
   doctor(program: string, env: EnvSpec[]): Promise<DoctorReport>;
   /** Legt die Konfiguration des Agenten an. Scheitert, wenn es sie schon gibt. */
-  writeConfig(preset: string): Promise<ConfigReport>;
+  /** Die erste Konfiguration: `jichi setup` (ohne Rückfragen) mit dem Gateway, dazu embed/rerank und der Dokumenten-Server. */
+  writeConfig(preset: string, program: string): Promise<ConfigReport>;
   /** Legt ein Geheimnis in der geschützten Ablage ab. Es kommt nie wieder hierher zurück. */
   secretStore(account: string, value: string): Promise<void>;
   secretPresent(account: string): Promise<boolean>;
@@ -475,7 +476,7 @@ export const tauriTransport: Transport = {
 
   doctor: (program, env) => invoke<DoctorReport>("doctor", { program, env }).catch(fail),
 
-  writeConfig: (preset) => invoke<ConfigReport>("write_config", { preset }).catch(fail),
+  writeConfig: (preset, program) => invoke<ConfigReport>("write_config", { preset, program }).catch(fail),
 
   secretStore: (account, value) =>
     invoke<void>("secret_store", { account, value }).catch(fail),
