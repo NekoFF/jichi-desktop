@@ -86,4 +86,10 @@ export const VERLAUF: Record<string, string> = {
   "Kopie speichern unter": "Save a copy as",
   // jichis Dokumentation
   "Seite öffnen": "Open page",
+  // Rückfragen
+  "Erlauben": "Allow",
+  "Für diese Sitzung erlauben": "Allow for this session",
+  "Ablehnen": "Reject",
+  "Immer ablehnen": "Always reject",
+  "Dauerhaft erlauben": "Allow permanently",
 };

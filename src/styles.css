@@ -315,6 +315,8 @@ main.haupt {
 /* Rückfrage */
 
 .rueckfrage {
+  /* Beim Hineinscrollen Platz für das Eingabefeld darunter lassen. */
+  scroll-margin-bottom: 150px;
   margin-bottom: 18px; padding: 12px 14px; border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-outline-variant));
   background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface-container-lowest));

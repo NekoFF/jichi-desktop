@@ -126,6 +126,23 @@ const Werkzeug = memo(function Werkzeug({ eintrag, terminal }: { eintrag: ToolIt
   );
 });
 
+/**
+ * Die Antwortmöglichkeiten einer Rückfrage nach ihrer Art benennen, nicht nach
+ * jichis englischem Text. Vor allem: `allow_always` gilt bei jichi nur für
+ * diese Sitzung (WEB_FRONTEND-Vorschlag: „UI copy must say allow_always is
+ * ‚for this session‘“) — und daneben steht der eigene Knopf „Dauerhaft
+ * erlauben“ (permissions.allow). Sonst stünde zweimal „Always allow“ da.
+ */
+function optionName(o: { kind?: string; name: string }): string {
+  switch (o.kind) {
+    case "allow_once": return t("Erlauben");
+    case "allow_always": return t("Für diese Sitzung erlauben");
+    case "reject_once": return t("Ablehnen");
+    case "reject_always": return t("Immer ablehnen");
+    default: return o.name;
+  }
+}
+
 /** Unter einer fertigen Antwort: kopieren, vorlesen, noch einmal fragen, wann. */
 function Aktionen({ id, text, frage, at, canSend, sprechen }: {
   id: string;
@@ -265,7 +282,16 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
   // Der Agent wartet — die Frage muss sichtbar sein, auch wenn der Benutzer
   // gerade weiter oben liest.
   useEffect(() => {
-    if (frage) kasten.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const el = kasten.current;
+    if (!frage || !el) return;
+    el.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    // Die Vorschau (Diff, Befehl) kommt erst danach und macht die Frage höher —
+    // dann rutschten „Erlauben“/„Ablehnen“ unter das Eingabefeld. Also bei jeder
+    // Größenänderung noch einmal, solange die Frage offen ist.
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => el.scrollIntoView?.({ block: "nearest" }));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [frage]);
   if (!frage) return null;
   // Die vollen Argumente kamen mit dem `tool_call` davor.
@@ -290,8 +316,9 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
               permissionTone(o) === "danger" ? " gefahr" : ""
             }`}
             onClick={() => agent.answerPermission(o.optionId)}
+            title={o.name}
           >
-            {o.name}
+            {optionName(o)}
           </button>
         ))}
         {werkzeug && erlaubenEinmal && (
@@ -303,7 +330,7 @@ function Rueckfrage({ snap }: { snap: Snapshot }) {
               () => agent.answerPermission(erlaubenEinmal.optionId),
             )}
           >
-            {t("Immer erlauben")}
+            {t("Dauerhaft erlauben")}
           </button>
         )}
         <button className="knopf" onClick={() => agent.answerPermission(null)}>
