@@ -1,0 +1,31 @@
+jichi Desktop
+Copyright (c) 2026 NekoFF
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Written during an internship at the Hochschulrechenzentrum (HRZ) of
+Justus-Liebig-Universität Gießen.
+
+jichi
+  jichi Desktop is a client for jichi, an AI agent written by
+  Alexander-Lars Dallmann; copyright (c) 2026 Justus-Liebig-Universität
+  Gießen, licensed under Apache-2.0
+  (https://github.com/alexanderlarsdallmann/jichi).
+  This repository contains no jichi source code. jichi runs as a separate
+  program that the application starts (`jichi --acp`), and its
+  documentation is read from jichi's own source tree at run time.
+  The demo fixture under screenshots/ quotes a few jichi documentation pages
+  and the output of `jichi init`; those quotes remain under jichi's licence.
+
+JLU Design System (@ki4jlu/design-system)
+  Colours and type come from the JLU Design System, referenced as a build
+  dependency and not included in this repository. Its package declares no
+  open-source licence ("UNLICENSED"). Redistributing built application
+  bundles needs the permission of its authors.
+
+DejaVu fonts (src-tauri/fonts/)
+  Embedded for PDF export. Bitstream Vera / DejaVu licence, see
+  src-tauri/fonts/DejaVu-LICENSE.txt.
+
+Claude (Anthropic) was used as a coding tool throughout and is credited as a
+tool, not as a copyright holder.

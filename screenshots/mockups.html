@@ -1,0 +1,100 @@
+<!doctype html>
+<!--
+  Geräte-Rahmen für die README: echte Bildschirmfotos (assets/screenshots/),
+  in reinem CSS gezeichnete Geräte. Keine Fotos, keine fremden Marken —
+  Laptop, Monitor und Fenster sind nachempfunden, nicht abgebildet.
+  ?szene=hero|windows|linux|monitor|dunkel
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>mockups</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1600px; height: 1000px; overflow: hidden; font-family: Inter, "Segoe UI", system-ui, sans-serif; }
+  .buehne { position: relative; width: 1600px; height: 1000px; display: grid; place-items: center; overflow: hidden; }
+  img { display: block; width: 100%; height: auto; }
+
+  /* Hintergründe */
+  .hg-jichi { background:
+      radial-gradient(1200px 700px at 15% 10%, #dbe7ff 0%, transparent 60%),
+      radial-gradient(900px 700px at 90% 90%, #c9dcff 0%, transparent 55%),
+      linear-gradient(160deg, #f5f8ff 0%, #e9f0ff 45%, #dfe9ff 100%); }
+  .hg-nacht { background:
+      radial-gradient(900px 600px at 20% 20%, #1d3b7a 0%, transparent 60%),
+      radial-gradient(900px 700px at 85% 85%, #0a66ff55 0%, transparent 60%),
+      linear-gradient(160deg, #0b1020 0%, #10182e 60%, #0b1020 100%); }
+  .hg-win { background:
+      radial-gradient(700px 520px at 50% 62%, #5aa2ff 0%, transparent 62%),
+      radial-gradient(900px 700px at 30% 30%, #2f6fe0 0%, transparent 60%),
+      radial-gradient(900px 700px at 80% 20%, #8fc3ff 0%, transparent 55%),
+      linear-gradient(180deg, #0d3aa6 0%, #1557d8 50%, #a9d0ff 100%); }
+  .hg-linux { background:
+      radial-gradient(900px 600px at 20% 80%, #e95420aa 0%, transparent 60%),
+      radial-gradient(900px 700px at 85% 15%, #77216faa 0%, transparent 60%),
+      linear-gradient(135deg, #2c001e 0%, #4a1338 55%, #2c001e 100%); }
+
+  /* Laptop */
+  .laptop { position: relative; width: 1180px; filter: drop-shadow(0 50px 60px rgba(17, 34, 80, .28)); }
+  .laptop .deckel { position: relative; padding: 22px 22px 26px; border-radius: 30px 30px 14px 14px;
+    background: linear-gradient(180deg, #2b2f36, #16181c); box-shadow: inset 0 0 0 2px #3c4149, inset 0 2px 0 #5a606b; }
+  .laptop .schirm { border-radius: 10px; overflow: hidden; background: #000; }
+  .laptop .kamera { position: absolute; top: 9px; left: 50%; width: 7px; height: 7px; margin-left: -3px; border-radius: 50%; background: #0b0c0e; box-shadow: 0 0 0 1px #2a2d33; }
+  .laptop .boden { position: relative; height: 30px; margin: 0 -70px; border-radius: 0 0 22px 22px / 0 0 26px 26px;
+    background: linear-gradient(180deg, #d9dce1 0%, #b9bdc4 55%, #8e939b 100%); box-shadow: inset 0 2px 0 #f2f3f5; }
+  .laptop .boden::before { content: ""; position: absolute; top: 0; left: 50%; width: 190px; height: 11px; margin-left: -95px;
+    border-radius: 0 0 12px 12px; background: linear-gradient(180deg, #a8adb5, #c9cdd3); }
+
+  /* Monitor */
+  .monitor { position: relative; width: 1240px; filter: drop-shadow(0 40px 50px rgba(0,0,0,.35)); }
+  .monitor .rahmen { padding: 16px; border-radius: 18px; background: linear-gradient(180deg, #1a1c20, #0e0f12); box-shadow: inset 0 0 0 2px #2c3037; }
+  .monitor .schirm { border-radius: 6px; overflow: hidden; }
+  .monitor .hals { width: 170px; height: 120px; margin: -2px auto 0; background: linear-gradient(90deg, #a7acb4, #e0e3e8 45%, #9aa0a8); clip-path: polygon(22% 0, 78% 0, 100% 100%, 0 100%); }
+  .monitor .fuss { width: 430px; height: 18px; margin: 0 auto; border-radius: 10px; background: linear-gradient(180deg, #e3e6ea, #a1a6ae); }
+
+  /* Fenster */
+  .fenster { width: 1240px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 30px 80px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.12); }
+  .fenster .titel { height: 40px; display: flex; align-items: center; padding: 0 0 0 16px; font-size: 13px; color: #1b1b1f; background: #f3f3f3; }
+  .fenster .titel .name { flex: 1; display: flex; align-items: center; gap: 10px; }
+  .fenster .titel .logo { width: 16px; height: 16px; border-radius: 3px; background: #0a66ff; }
+  .win .knoepfe { display: flex; height: 100%; }
+  .win .knoepfe span { width: 46px; display: grid; place-items: center; color: #333; font-size: 15px; }
+  .win .knoepfe span:last-child:hover { background: #c42b1c; }
+  .gnome { border-radius: 14px; }
+  .gnome .titel { height: 44px; justify-content: center; padding: 0; background: #ebebeb; font-weight: 700; color: #2e2e2e; position: relative; }
+  .gnome .titel .zu { position: absolute; right: 12px; width: 24px; height: 24px; border-radius: 50%; background: #dadada; display: grid; place-items: center; font-size: 12px; color: #444; }
+
+  /* Zweites, kleineres Bild zur Tiefe */
+  .neben { position: absolute; width: 560px; border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px rgba(10, 30, 80, .35), 0 0 0 1px rgba(0,0,0,.06); }
+
+  .marke { position: absolute; left: 70px; top: 60px; display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 700; letter-spacing: -.5px; color: #10203f; }
+  .marke small { display: block; font-size: 16px; font-weight: 500; color: #4a5a7a; letter-spacing: 0; }
+  .nacht .marke, .nacht .marke small { color: #e8eefc; }
+  .zeichen { width: 44px; height: 44px; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 1fr); }
+</style>
+</head>
+<body>
+<div id="b"></div>
+<script>
+  const s = new URLSearchParams(location.search).get("szene") || "hero";
+  const bild = (n) => `<img src="../assets/screenshots/${n}.png" alt="">`;
+  // Das Zeichen von jichi: drei Stufen und ein blaues Quadrat (wie assets/brand).
+  const zeichen = `<svg width="44" height="44" viewBox="0 0 10 10"><g fill="#111"><rect x="0" y="0" width="2" height="2"/><rect x="2" y="2" width="2" height="2"/><rect x="4" y="4" width="2" height="2"/><rect x="2" y="6" width="2" height="2"/><rect x="0" y="8" width="2" height="2"/></g><rect x="7" y="6" width="3" height="3" fill="#0a66ff"/></svg>`;
+  const marke = (hell = true) => `<div class="marke">${hell ? zeichen : zeichen.replace('#111', '#e8eefc')}<div>jichi Desktop<small>A desktop client for the jichi agent</small></div></div>`;
+  const szenen = {
+    hero: `<div class="buehne hg-jichi">${marke()}
+      <div class="laptop" style="margin-top:80px"><div class="deckel"><div class="kamera"></div><div class="schirm">${bild("chat-light")}</div></div><div class="boden"></div></div>
+      <div class="neben" style="right:46px; bottom:64px; width:600px; border-radius:12px">${bild("permission-card")}</div></div>`,
+    dunkel: `<div class="buehne hg-nacht nacht">${marke(false)}
+      <div class="laptop" style="margin-top:80px"><div class="deckel"><div class="kamera"></div><div class="schirm">${bild("chat-dark")}</div></div><div class="boden"></div></div></div>`,
+    windows: `<div class="buehne hg-win">
+      <div class="fenster win"><div class="titel"><div class="name"><span class="logo"></span>jichi</div><div class="knoepfe"><span>&#x2500;</span><span>&#x2610;</span><span>&#x2715;</span></div></div>${bild("docs-win")}</div></div>`,
+    linux: `<div class="buehne hg-linux">
+      <div class="fenster gnome"><div class="titel">jichi<span class="zu">&#x2715;</span></div>${bild("setup-linux")}</div></div>`,
+    monitor: `<div class="buehne hg-jichi">${marke()}
+      <div class="monitor" style="margin-top:90px"><div class="rahmen"><div class="schirm">${bild("docs")}</div></div><div class="hals"></div><div class="fuss"></div></div></div>`,
+  };
+  document.getElementById("b").innerHTML = szenen[s] ?? szenen.hero;
+</script>
+</body>
+</html>

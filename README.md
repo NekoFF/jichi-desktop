@@ -1,79 +1,205 @@
+<div align="center">
+
+<img src="assets/mockups/hero.png" alt="jichi Desktop on a laptop: a conversation that finds and fixes a bug, the change shown as a diff in the side panel" width="100%">
+
 # jichi Desktop
 
-Ein Desktop-Fenster für den KI-Agenten [jichi](https://github.com/alexanderlarsdallmann/jichi)
-— für macOS, Linux und Windows. Projektordner wählen, Aufgabe schreiben, Antworten,
-Werkzeugaufrufe und Rückfragen sehen, frühere Chats wieder aufnehmen.
+**A desktop window for the [jichi](https://github.com/alexanderlarsdallmann/jichi) AI agent.
+Open a project, ask, watch every tool call, and approve every change.**
 
-Die Anwendung ist ein **Client**: sie startet `jichi --acp` als Kindprozess und
-spricht mit ihm über ACP (JSON-RPC 2.0, eine Nachricht pro Zeile über stdin/stdout).
-Modell und Agentenschleife sind jichi; hier liegen Fenster, Protokoll und Zustand.
+![macOS](https://img.shields.io/badge/macOS-used%20daily-111?logo=apple&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows%2011-built%20%26%20tested%20·%20jichi%20via%20WSL-0a66ff?logo=windows&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-built%20%26%20tested-e95420?logo=linux&logoColor=white)
+<br>
+![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-stable-b7410e?logo=rust&logoColor=white)
+![Licence](https://img.shields.io/badge/licence-Apache--2.0-informational)
 
-## Was sie kann
+*[Deutsch](docs/LIESMICH.md)*
 
-- Chats pro Projekt, mit Verlauf, Suche, Export (Markdown, Word, PDF) und einer
-  Sprungleiste zu jeder Frage
-- Rückfragen und Erlaubnisse von jichi als Dialog, dauerhafte Erlaubnisse und
-  MCP-Server in den Einstellungen
-- Seitenpanel: Dateien, Datei-Ansicht und -Bearbeitung, Git-Änderungen, Terminal,
-  Browser, Artefakte (HTML/SVG/Mermaid in einer abgeschotteten Vorschau), PDF-Vorschau
-- Dokumente für jichi: PDF, Word, Excel lesen und erzeugen (eingebauter MCP-Server)
-- Modelle über das HRZ-Gateway; der API-Schlüssel liegt in einer geschützten Datei
-  der Anwendung, nie in `localStorage`, Logs oder Zustand
+</div>
 
-## Voraussetzungen
+---
 
-- **jichi** gebaut oder im `PATH` (die Anwendung sucht es beim ersten Start)
-- Node.js 24, Rust (stable), dazu die [Tauri-Voraussetzungen](https://v2.tauri.app/start/prerequisites/)
-  der Plattform
+jichi Desktop is a **client**, not a second agent. It starts `jichi --acp` and
+talks to it over the [Agent Client Protocol](https://agentclientprotocol.com):
+JSON-RPC 2.0, one message per line. The model, the agent loop, the tools and the
+configuration all belong to jichi. The app adds a window for people who would
+rather not work in a terminal.
 
-Was auf den einzelnen Plattformen auffiel (2026-09-26):
+The app was built during an internship at the Hochschulrechenzentrum (HRZ) of
+Justus-Liebig-Universität Gießen. It works with the university's LLM gateway
+and uses only the gateway's free `jlu/…` models.
 
-- **Node der Linux-Distribution reicht nicht.** `npm run check` startet
-  `node src/core/selftest.ts`; das Node-Paket von Ubuntu 26.04 (22.22) ist ohne
-  eingebautes TypeScript-Entfernen gebaut. Node 24 von nodejs.org nehmen.
-- **Windows: `npm install` scheitert am Design System.** Dessen `build`-Skript ruft
-  `cp` auf, das `cmd.exe` nicht kennt. Bis das dort behoben ist:
-  `npm ci --script-shell "C:\Program Files\Git\bin\bash.exe"`.
-- **Windows: Smart App Control** blockiert unsignierte, frisch gebaute Programme —
-  schon die Build-Skripte von Rust (`os error 4551`) und ebenso die fertige
-  Anwendung. Zum Bauen muss es aus sein; für eine Verteilung braucht die
-  Anwendung eine Code-Signatur.
-- **Windows: jichi läuft in WSL.** Die Anwendung startet `wsl.exe jichi --acp`;
-  jichi wird dafür in der Standard-Distribution gebaut und nach `/usr/local/bin`
-  gelegt (`make WERROR=1` baut unter Ubuntu ohne Änderung).
+## What it does
 
-## Befehle
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### You approve every change
+Each tool call appears while it runs, so you can see what jichi read, ran or
+wrote. Before jichi edits a file you see the **exact diff**, and you choose
+*Allow*, *Allow for this session*, *Allow permanently* or *Reject*. Nothing
+happens without you.
+
+</td>
+<td width="50%"><img src="assets/screenshots/permission-card.png" alt="jichi asks for permission to edit a file and shows the diff first"></td>
+</tr>
+<tr>
+<td><img src="assets/screenshots/docs.png" alt="jichi's documentation in the side panel"></td>
+<td valign="top">
+
+### jichi's documentation is built in
+<kbd>⌘</kbd><kbd>⇧</kbd><kbd>H</kbd> opens all 575 pages of jichi's
+documentation. They are arranged like jichi's own map (`docs/README.md`) and
+you can search their full text. A switch also gives the same documentation to
+jichi as a reference: jichi indexes it itself and answers with `search_docs`.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Projects are set up the jichi way
+*Set up project* runs **`jichi init`** and offers jichi's own 33 scaffolding
+packs: agents, skills, commands and `AGENTS.md`. It shows the dry run first,
+and it writes nothing until you have seen the result. The first-run setup uses
+**`jichi setup`**, so the configuration comes from jichi and is not a copy of it.
+
+</td>
+<td><img src="assets/screenshots/setup-project.png" alt="Choosing jichi init packs with a dry-run preview"></td>
+</tr>
+</table>
+
+**Also:**
+- **Side panel** with files, an editor, git changes with diffs, a real terminal,
+  a browser and artifacts. Artifacts (HTML, SVG, Mermaid) render in a sandbox.
+  Everything sits next to the conversation.
+- **Documents:** jichi reads and writes PDF, Word and Excel through a built-in
+  MCP server.
+- **Speech:** dictate into the input field through the gateway's `jlu/whisper-1`.
+- **Your choice of** Deutsch or English, light or dark, floating or classic layout.
+
+<p align="center">
+  <img src="assets/mockups/dunkel.png" alt="The same conversation in the dark theme" width="49%">
+  <img src="assets/mockups/monitor.png" alt="jichi Desktop on an external monitor with the documentation open" width="49%">
+</p>
+
+## Platforms
+
+jichi runs on Linux, the BSDs, illumos, Haiku, FreeDOS, FreeMiNT, Android and
+more, and on Windows inside WSL. The app can reach only what its framework,
+[Tauri](https://tauri.app), supports. This table lists what has actually been
+run, not what should work:
+
+| Platform | State | Notes |
+|---|---|---|
+| macOS (Apple Silicon) | **used daily** | `.app`/`.dmg` built |
+| Windows 11 | **built and tested** | jichi runs in WSL2 (`wsl.exe jichi --acp`). Smart App Control has to be off for the build. |
+| Linux (Ubuntu 26.04) | **built and tested** | so far only under WSLg; a native desktop session is next |
+| FreeBSD / NetBSD / OpenBSD | never built | Tauri does not list the BSDs |
+| Haiku, FreeDOS, FreeMiNT | not possible with Tauri | jichi's own TUI works there |
+
+<p align="center">
+  <img src="assets/mockups/windows.png" alt="jichi Desktop in a Windows 11 window" width="49%">
+  <img src="assets/mockups/linux.png" alt="jichi Desktop on a Linux desktop, in German" width="49%">
+</p>
+
+Two documents in German explain the choices:
+- [`docs/ENTSCHEIDUNGEN.md`](docs/ENTSCHEIDUNGEN.md): why Tauri, which
+  alternatives were rejected, and when to reconsider.
+- [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md): requirements, the measured
+  platforms, and open questions.
+
+## Getting started
+
+You need:
+- **jichi**, built from source (see its
+  [`docs/BUILD.md`](https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/BUILD.md))
+- **Node.js 24**
+- **Rust** (stable)
+- the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your system
 
 ```sh
+git clone https://github.com/NekoFF/jichi-desktop.git
+cd jichi-desktop
 npm install
-npm run tauri dev      # Anwendung mit Live-Neuladen
-npm run check          # TypeScript, Kern-Selbsttest, UI-Tests
-npm run check:rust     # Rust-Tests
-npm run build          # Frontend bauen
-npm run tauri build    # Installationspaket (.app/.dmg, .deb/.AppImage, .msi)
+npm run tauri dev
 ```
 
-Vite läuft auf Port 1420. `npm run dev` allein öffnet nur das Frontend im
-Browser — ohne Tauri-Brücke, also ohne Agent.
+On first start the app finds jichi, asks for your gateway key, and lets
+`jichi setup` write the configuration. The app keeps the key in its own private
+file (mode 0600). jichi's configuration stores only the *name* of the
+environment variable (`apiKeyEnv`), never the key.
 
-## Aufbau
-
-| Ort | Aufgabe |
+| | |
 |---|---|
-| `src-tauri/src/` | Rust: Prozess, Dateien, Schlüssel, PTY, Browser, Dokumente |
-| `src/core/` | TypeScript-Kern: ACP, Zustand, Einstellungen — einzige Tauri-Schicht ist `transport.ts` |
-| `src/ui/` | React-Oberfläche; spricht nur über `src/core/index.ts` mit dem Agenten |
+| `npm run check` | TypeScript, the core self-test (143 checks), UI tests |
+| `npm run check:rust` | Rust tests |
+| `npm run tauri build` | installer for your platform |
 
-Farben aus dem JLU Design System (semantische Tokens).
-Mehr in [`docs/CONTRACT.md`](docs/CONTRACT.md) und [`docs/SEITENPANEL.md`](docs/SEITENPANEL.md);
-wer neu einsteigt, beginnt mit [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md)
-(Absicht, Aufbau, Entscheidungen, bekannte Grenzen).
+**Windows:**
+- The JLU Design System's build script calls `cp`, which Windows lacks. Install
+  with `npm ci --script-shell "C:\Program Files\Git\bin\bash.exe"`.
+- Build jichi inside your default WSL distribution.
 
-## Stand
+## How it is built
 
-Läuft unter macOS, Linux und Windows (dort mit jichi in WSL): benutzt unter
-macOS, gebaut und geprüft unter Windows 11 und Ubuntu 26.04 (WSL2). Was genau
-gemessen ist und was nicht — und warum Tauri: [`docs/ANFORDERUNGEN.md`](docs/ANFORDERUNGEN.md)
-und [`docs/ENTSCHEIDUNGEN.md`](docs/ENTSCHEIDUNGEN.md).
+```mermaid
+flowchart LR
+  UI["React UI<br/>src/ui"] -->|"snapshot + methods"| Core["TypeScript core<br/>src/core"]
+  Core -->|"transport.ts — the only Tauri layer"| Rust["Rust<br/>src-tauri"]
+  Rust -->|"stdin/stdout · ACP"| J["jichi --acp"]
+  J -->|"jlu/… models"| GW["HRZ LLM gateway"]
+```
 
-Entstanden im Praktikum am Hochschulrechenzentrum der JLU Gießen.
+- **Only `src/core/transport.ts` knows Tauri.** The core and the UI could run
+  on a different transport, such as a browser front end for platforms Tauri
+  cannot reach. The contract is in [`docs/CONTRACT.md`](docs/CONTRACT.md).
+- **Security:**
+  - The key never leaves Rust and goes into jichi's environment only.
+  - Only `jlu/…` models are accepted.
+  - File access is limited to the project.
+  - Config edits keep a backup.
+  - Terminals start without secret variables.
+  - Artifacts render in a sandboxed iframe with a strict CSP.
+  - The side-panel browser cannot use the microphone or camera.
+
+## About the pictures
+
+The screenshots show a **real** jichi 0.12.0 session (`jlu/qwen3-coder-next`),
+replayed in the actual UI:
+- `screenshots/demo.ts` replaces the Tauri bridge with `mockIPC` and plays back
+  the recorded ACP messages.
+- Only the titles of the older chats in the sidebar are invented.
+- The devices are drawn in CSS (`screenshots/mockups.html`); they are not
+  photographs.
+
+To regenerate them:
+
+```sh
+npx vite --port 1420 &
+CHROME=/path/to/chrome node screenshots/shoot.mjs
+CHROME=/path/to/chrome node screenshots/mock.mjs
+```
+
+## Credits
+
+- **[jichi](https://github.com/alexanderlarsdallmann/jichi)** was written by
+  **Alexander-Lars Dallmann**, © 2026 Justus-Liebig-Universität Gießen,
+  Apache-2.0. Thank you for the agent and for the feedback that shaped this
+  app. jichi is not included in this repository; it runs as a separate program.
+- Colours and type come from the **JLU Design System** (`@ki4jlu/design-system`),
+  a build dependency. Its package declares no open-source licence, so
+  redistributing built bundles needs its authors' permission.
+- Also built with [Tauri](https://tauri.app), [React](https://react.dev),
+  [xterm.js](https://xtermjs.org), [pdf.js](https://mozilla.github.io/pdf.js/)
+  and the DejaVu fonts (for PDF export).
+
+The full notice is in [`NOTICE`](NOTICE).
+
+## Licence
+
+[Apache-2.0](LICENSE) © 2026 NekoFF
