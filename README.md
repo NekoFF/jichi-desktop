@@ -29,8 +29,10 @@ configuration all belong to jichi. The app adds a window for people who would
 rather not work in a terminal.
 
 The app was built during an internship at the Hochschulrechenzentrum (HRZ) of
-Justus-Liebig-Universität Gießen. It works with the university's LLM gateway
-and uses only the gateway's free `jlu/…` models.
+Justus-Liebig-Universität Gießen. Out of the box it is set up for the
+university's LLM gateway, but it is **not tied to it**: jichi supports many
+providers and models, and so does the app. See
+[Models and providers](#models-and-providers).
 
 ## What it does
 
@@ -144,6 +146,53 @@ environment variable (`apiKeyEnv`), never the key.
 - The JLU Design System's build script calls `cp`, which Windows lacks. Install
   with `npm ci --script-shell "C:\Program Files\Git\bin\bash.exe"`.
 - Build jichi inside your default WSL distribution.
+
+## Models and providers
+
+The app uses whatever **jichi's own configuration** (`~/.jichi`) says. jichi
+supports OpenAI-compatible endpoints (OpenAI, LiteLLM gateways, vLLM, LM Studio,
+Ollama and others) and Anthropic. Set it up the way jichi documents it:
+
+- [`MODELS.md`](https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/MODELS.md):
+  providers, model entries and roles
+- [`CONFIG_TUTORIAL.md`](https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/CONFIG_TUTORIAL.md):
+  the configuration step by step
+- [`LOCAL_MODELS.md`](https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/LOCAL_MODELS.md):
+  models on your own machine
+- [`SETUP_WIZARD.md`](https://github.com/alexanderlarsdallmann/jichi/blob/master/docs/SETUP_WIZARD.md):
+  `jichi setup`, which also runs without questions
+
+All of these pages are also in the app (<kbd>⌘</kbd><kbd>⇧</kbd><kbd>H</kbd>).
+
+**How it fits together:**
+
+- **A `~/.jichi` you already have is used as it is.** The first-run setup
+  (`jichi setup` with the HRZ gateway) only runs when there is no
+  configuration yet. To use another provider, run `jichi setup` yourself
+  first, or write the file by hand.
+- **The model menu lists every chat model in your configuration,** whatever the
+  provider. Switching models restarts jichi with `--model`, and the open chat
+  continues.
+- **One key is handed to jichi as `JICHI_API_KEY`:** the key you enter in the
+  app. For a provider that needs a key, give its model entry
+  `"apiKeyEnv": "JICHI_API_KEY"`. Local servers (LM Studio, Ollama) need no
+  key. An app started from the Dock does not see the variables of your shell,
+  so other key variables do not reach jichi.
+
+  ```json
+  { "models": [ { "name": "local", "provider": "openai", "model": "qwen2.5-coder:14b",
+                  "apiBase": "http://127.0.0.1:11434/v1", "roles": ["chat"] } ] }
+  ```
+
+- **Only for the HRZ gateway:**
+  - the list of the gateway's models in the model menu, filtered to the free
+    `jlu/…` ones, because the gateway also lists paid models;
+  - dictation (`/audio/transcriptions`).
+
+  With another provider these features stay empty; everything else works.
+
+**Honest status:** used daily with the HRZ gateway. Another provider has not
+been tried with the app yet. The path is jichi's, so it should work.
 
 ## How it is built
 

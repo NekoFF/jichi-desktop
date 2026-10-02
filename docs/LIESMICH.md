@@ -42,6 +42,28 @@ Was auf den einzelnen Plattformen auffiel (2026-09-26):
   jichi wird dafür in der Standard-Distribution gebaut und nach `/usr/local/bin`
   gelegt (`make WERROR=1` baut unter Ubuntu ohne Änderung).
 
+## Modelle und Anbieter
+
+Die Anwendung nimmt, was in jichis eigener Konfiguration (`~/.jichi`) steht.
+Möglich sind also alle Anbieter, die jichi kennt: OpenAI-kompatible Endpunkte
+(LiteLLM-Gateways, vLLM, LM Studio, Ollama …) und Anthropic. Wie man sie
+einrichtet, steht in jichis `MODELS.md`, `CONFIG_TUTORIAL.md`,
+`LOCAL_MODELS.md` und `SETUP_WIZARD.md`. Die Seiten sind auch in der
+Anwendung (⌘⇧H).
+
+- Eine vorhandene `~/.jichi` bleibt, wie sie ist. Die erste Einrichtung
+  (`jichi setup` mit dem Gateway des HRZ) läuft nur, wenn es noch keine gibt.
+- Das Modellmenü zeigt alle Chat-Modelle der Konfiguration, gleich von welchem
+  Anbieter.
+- Die Anwendung gibt jichi einen Schlüssel, als `JICHI_API_KEY`. Für einen
+  Anbieter mit Schlüssel trägt man bei dessen Modell
+  `"apiKeyEnv": "JICHI_API_KEY"` ein. Lokale Server brauchen keinen Schlüssel.
+- Nur mit dem Gateway des HRZ gehen:
+  - die Liste der Gateway-Modelle, gefiltert auf die freien `jlu/…`;
+  - das Diktat.
+- Mit einem anderen Anbieter ist die Anwendung noch nicht ausprobiert worden.
+  Der Weg dorthin ist jichis eigener.
+
 ## Befehle
 
 ```sh

@@ -145,8 +145,12 @@ Systems wohl erwartet.
 
 ## E6 Nur `jlu/…`-Modelle
 
-**Gewählt:** Die Modellauswahl, das Diktat und das Vorlesen nehmen nur `jlu/…`.
-Das prüft Rust, nicht nur die Oberfläche.
+**Gewählt:** Vom **Gateway des HRZ** bietet die Anwendung nur `jlu/…` an:
+in der Liste der Gateway-Modelle, im Diktat und im Vorlesen. Das prüft Rust,
+nicht nur die Oberfläche. Was der Benutzer selbst in `~/.jichi` einträgt, von
+welchem Anbieter auch immer, steht im Modellmenü und wird nicht gefiltert. Das
+ist jichis Konfiguration und seine Entscheidung (siehe README, „Models and
+providers“).
 
 **Verworfen:** Alles zeigen, was der Schlüssel erreicht. Das Gateway listet auch
 Modelle fremder Anbieter, und die kosten Geld.
@@ -182,4 +186,5 @@ Antwort ändern würde.
 | Z4 | Unter Windows liest und schreibt die Anwendung das `~/.jichi` von Windows, jichi in WSL liest sein eigenes. `probe`/`doctor` rufen `wsl.exe` ohne `jichi` | gefunden am 30.09. | Konfiguration über `wsl.exe jichi …` lesen und schreiben |
 | Z5 | Code-Signatur für Windows und macOS | braucht ein Zertifikat der Universität | ohne sie startet die Anwendung bei eingeschaltetem Smart App Control nicht (R3) |
 | Z6 | BSD | ungemessen, siehe E1 | die Sidecar-Oberfläche, oder ein Versuch mit WebKitGTK aus den Ports |
+| Z8 | Die erste Einrichtung kennt nur das Gateway des HRZ. Einen anderen Anbieter richtet man vorher mit `jichi setup` ein. Andere Schlüssel-Variablen als `JICHI_API_KEY` reicht die Anwendung nicht weiter | Hinweis von Alex am 02.10.: andere Anbieter sollen sichtbar sein; dokumentiert ist es, eingebaut noch nicht | eine Anbieterwahl im ersten Schritt, die `jichi setup --provider/--api-base/--model` aufruft |
 | Z7 | JSON-Ausgabe für `setup --list`/`init --list` | gibt es in jichi nicht, die Anwendung liest die Textausgabe | eine Frage an Alex |
